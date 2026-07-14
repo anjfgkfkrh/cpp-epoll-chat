@@ -1,5 +1,7 @@
 #include "Socket.h"
 #include "Epoll.h"
+#include "Protocol.h"
+
 #include <string>
 #include <optional>
 #include <unordered_map>

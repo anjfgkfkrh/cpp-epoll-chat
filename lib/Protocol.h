@@ -1,6 +1,8 @@
 #pragma once
 #include <cstdint>
 
+// 네트워크 통신에 사용되는 프로토콜을 정의한 헤더 파일
+
 enum PacketType : uint16_t {
     PKT_REQUEST     = 1,    // Request 패킷
     PKT_RESPONSE    = 2,    // Response 패킷
@@ -22,7 +24,6 @@ enum event : uint16_t {
 
 struct Header{
     uint16_t type;      // 패킷 종류
-    uint32_t length;    // 뒤따르는 데이터 크기
 };
 
 struct Request {
@@ -39,7 +40,7 @@ struct Response {
 
 struct Broadcast {
     uint16_t event;     // 이벤트 종류
-    uint32_t sender_id; // 송신자
+    uint16_t sender_id; // 송신자
     uint32_t room_id;   // 방 번호
     uint32_t body_len;  // 메시지 길이
 };

@@ -18,7 +18,7 @@ void Epoll::remove(int target_fd){
     epoll_ctl(fd_, EPOLL_CTL_DEL, target_fd, nullptr);
 }
 
-int Epoll::wait(std::vector<epoll_event>& events, int timeout = -1) {
+int Epoll::wait(std::vector<epoll_event>& events, int timeout) {
     int n = epoll_wait(fd_, events.data(), events.size(), timeout);
     if (n < 0) throw std::runtime_error("epoll_wait failed");
     return n;

@@ -8,8 +8,12 @@
 
 Client::Client() {
 
+    std::cout << "check" << std::endl;
+
     // 명령어 설정
     setup_command();
+
+    std::cout << "[info] setup command complete" << std::endl;
 
     // 서버 접속
     int try_num = 0;
@@ -23,12 +27,13 @@ Client::Client() {
     } while (try_num <= 3);
     if(try_num > 3) return;
     
-    std::cout << "[info] Success to connect Server!";
+    std::cout << "[info] Success to connect Server!" << std::endl;
 
     // 상태 설정
     state_ = ClientState::LOBBY;
 
     // Epoll 등록
+    events_.resize(MAX_EVENTS);
     epoll_.add(sock_->get(), EPOLLIN);
     epoll_.add(STDIN_FILENO, EPOLLIN);
 
@@ -36,14 +41,22 @@ Client::Client() {
     running_ = false;
 }
 
+Client::~Client() {}
 
 bool Client::connect_server() {
-    sock_ = Socket(socket(AF_INET, SOCK_STREAM, 0));
+    try{
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) perror("socket");
+    sock_ = Socket(fd);
+    } catch (const std::runtime_error& e) {
+        std::cerr << "[error] " << e.what() << std::endl;
+        return false;
+    }
 
     struct sockaddr_in addr;
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK); // 내부 테스트용
-    addr.sin_port = htonl(8080);
+    addr.sin_port = htons(8080);
 
     if (connect(sock_->get(), (struct sockaddr *)&addr, sizeof(addr)) < 0){
         perror("connect");
@@ -57,7 +70,7 @@ bool Client::setup_command() {
     commands_lobby_["/create"] = [this](std::istringstream& args) {
         uint16_t room_id;
         if (args >> room_id) {
-            if(send_request(CMD_CREATE_ROOM, room_id))      std::cout << "[info] Create Room Request sended" << std::endl;
+            if(send_request(CMD_CREATE_ROOM, room_id))      std::cout << "[debug] Create Room Request sended" << std::endl;
             else    std::cout << "[error] Fail to send Request" << std::endl;
         } else {
             std::cout << "[error] please write '/create [room_id]'" << std::endl;
@@ -67,7 +80,7 @@ bool Client::setup_command() {
     commands_lobby_["/join"] = [this](std::istringstream& args) {
         uint16_t room_id;
         if (args >> room_id) {
-            if (send_request(CMD_JOIN_ROOM, room_id))       std::cout << "[info] Join the Room Request sended" << std::endl;
+            if (send_request(CMD_JOIN_ROOM, room_id))       std::cout << "[debug] Join the Room Request sended" << std::endl;
             else    std::cout << "[error] Fail to send Request" << std::endl;
         } else {
             std::cout << "[error] please write '/join [room_id]'" << std::endl;
@@ -80,16 +93,21 @@ bool Client::setup_command() {
     };
 
     commands_room_["/leave"] = [this](std::istringstream& args) {
-        if (send_request(CMD_LEAVE_ROOM, room_id_))     std::cout << "[info] Leave the Room Request sended" << std::endl;
+        if (send_request(CMD_LEAVE_ROOM, room_id_))     std::cout << "[debug] Leave the Room Request sended" << std::endl;
         else    std::cout << "[error] Fail to send Request" << std::endl;
     };
+
+    return true;
 }
 
 void Client::run(){
     running_ = true;
+    std::cout << "[info] start running" << std::endl;
 
     while(running_) {
+        std::cout << "[debug][epoll] waiting new event" << std::endl;
         int n = epoll_.wait(events_);
+        std::cout << "[debug][epoll] new event n: " << n << std::endl;
         
         for (int i=0; i<n && running_; i++){
             int event = events_[i].data.fd;
@@ -115,17 +133,23 @@ std::string Client::read_line() {
     return std::string(buf, bytes);
 }
 
-bool Client::send_request(Command cmd, uint16_t room_id, const std::string& body = "") {
+bool Client::send_request(Command cmd, uint16_t room_id, const std::string& body) {
+    Header header;
+    header.type = PKT_REQUEST;
+
     Request req;
     req.command = cmd;
     req.room_id = room_id;
     req.body_len = body.size();
 
-    if(!sock_->send_all(&req, sizeof(Request)))
-        return false;
-    if (body.size() > 0 && !sock_->send_all(body.data(), body.size()))
+    sock_->pack(&header, sizeof(Header));
+    sock_->pack(&req, sizeof(Request));
+    if (body.size() > 0)
+        sock_->pack(body.data(), body.size());
+    if(!sock_->flush())
         return false;
 
+    pending_command_ = cmd;
     return true;
 }
 
@@ -134,6 +158,8 @@ bool Client::handle_input(){
         std::cout << "[info] Processing request..." << std::endl;
         return false;
     }
+
+    std::cout << "[debug][input] new input" << std::endl;
 
     std::string input = read_line();
     std::istringstream stream(input);
@@ -152,12 +178,16 @@ bool Client::handle_input(){
                 std::cout << "[error] Fail to send message" << std::endl;
         }
     }
+
+    return true;
 }
 
 bool Client::handle_packet(){
     Header header;
     if (!sock_->recv_all(&header, sizeof(Header)))
         return false;
+
+    std::cout << "[debug][packet] new packet" << std::endl;
 
     switch(header.type)
     {
@@ -166,6 +196,8 @@ bool Client::handle_packet(){
     default:
         break;
     }
+
+    return true;
 }
 
 bool Client::handle_response() {    
@@ -176,6 +208,8 @@ bool Client::handle_response() {
         std::function<void()> fn;
         ~ScopeGuard() { fn(); }
     } scope_guard{guard};
+
+    std::cout << "[debug][response] new response" << std::endl;
 
     Response res;
 
@@ -191,15 +225,27 @@ bool Client::handle_response() {
         return false;
     }
 
+    std::cout << "[debug][response] no error response" << std::endl;
+
     switch(res.command)
     {
     case CMD_CREATE_ROOM:{
-        if (res.body_len == sizeof(uint16_t))
+        std::cout << "[debug][response][create] response for create room " << std::endl;
+        if (res.body_len != sizeof(uint16_t)){
+            std::cout << "[error][response][create] ";
+            std::string errmsg(res.body_len, '\0');
+            sock_->recv_all(errmsg.data(), res.body_len);
+            std::cout << errmsg << std::endl;
             return false;
-        if (!sock_->recv_all(&room_id_, sizeof(res.body_len)))
+        }
+        if (!sock_->recv_all(&room_id_, res.body_len)){
+            std::cout << "[error][response][create][recv]" << std::endl;
             return false;
-        if (state_ != ClientState::LOBBY)
+        }
+        if (state_ != ClientState::LOBBY){
+            std::cout << "[error][response][create][state] you are not in lobby" << std::endl;
             return false;
+        }
 
         state_ = ClientState::IN_ROOM;
 
@@ -208,9 +254,14 @@ bool Client::handle_response() {
         break;
     }
     case CMD_JOIN_ROOM: {
-        if (res.body_len == sizeof(uint16_t))
+        std::cout << "[debug][response][join] response for join room " << std::endl;
+        if (res.body_len != sizeof(uint16_t)){
+            std::string errmsg(res.body_len, '\0');
+            sock_->recv_all(errmsg.data(), res.body_len);
+            std::cout << "[error][response][create]" << errmsg << std::endl;
             return false;
-        if (!sock_->recv_all(&room_id_, sizeof(res.body_len)))
+        }
+        if (!sock_->recv_all(&room_id_, res.body_len))
             return false;
         if (state_ != ClientState::LOBBY)
             return false;

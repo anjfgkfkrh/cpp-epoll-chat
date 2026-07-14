@@ -3,6 +3,7 @@
 #include <sys/epoll.h>
 #include <unistd.h>
 
+// Epoll을 관리하는 클래스
 // RAII epoll
 class Epoll {
 private:
