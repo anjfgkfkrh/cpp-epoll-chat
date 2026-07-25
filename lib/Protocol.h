@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <vector>
 
 // 네트워크 통신에 사용되는 프로토콜을 정의한 헤더 파일
 
@@ -24,6 +25,13 @@ enum event : uint16_t {
 
 struct Header{
     uint16_t type;      // 패킷 종류
+};
+
+// 패킷을 감싸서 객체간 쉽게 넘기기위한 구조체
+struct Packet {
+    Header header;
+    Request request;
+    std::vector<std::byte> body;
 };
 
 struct Request {
