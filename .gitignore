@@ -1,2 +1,6 @@
-./server
-./client
+# 빌드 산출물 (오브젝트 파일 + 실행 파일)
+out/client/
+out/server/
+debugFiles/
+ex_run_client
+ex_run_server
