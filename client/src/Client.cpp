@@ -2,305 +2,344 @@
 
 #include <iostream>
 #include <sstream>
-#include "Protocol.h"
+#include <cstring>
+#include <arpa/inet.h>
 
-#define BUF_SIZE 1024
+using Protocol::Header;
+using Protocol::Request;
+using Protocol::Response;
+using Protocol::Broadcast;
+using Protocol::Command;
+using Protocol::PacketType;
 
-Client::Client() {
+namespace {
 
-    std::cout << "check" << std::endl;
+const char* status_text(ResponseResultCode s) {
+    switch (s) {
+    case ResponseResultCode::Success:           return "성공";
+    case ResponseResultCode::RoomNotFound:      return "존재하지 않는 방입니다";
+    case ResponseResultCode::RoomAlreadyExists: return "이미 존재하는 방 번호입니다";
+    case ResponseResultCode::RoomFull:          return "방이 가득 찼습니다";
+    case ResponseResultCode::UserNotFound:      return "해당 방에서 유저를 찾을 수 없습니다";
+    case ResponseResultCode::None:              return "처리 결과 없음";
+    }
+    return "알 수 없는 결과";
+}
 
-    // 명령어 설정
+const char* command_text(Command c) {
+    switch (c) {
+    case Command::CMD_CREATE_ROOM:  return "방 생성";
+    case Command::CMD_JOIN_ROOM:    return "방 입장";
+    case Command::CMD_LEAVE_ROOM:   return "방 퇴장";
+    case Command::CMD_SEND_MESSAGE: return "메시지 전송";
+    }
+    return "알 수 없는 명령";
+}
+
+} // namespace
+
+
+Client::Client(uint16_t port) : state_(ClientState::LOBBY), room_id_(0), running_(false) {
     setup_command();
 
-    std::cout << "[info] setup command complete" << std::endl;
-
-    // 서버 접속
-    int try_num = 0;
-    do
-    {
-        std::cout << "[info] Try connect to server: " << try_num << std::endl;
+    int try_num = 1;
+    bool connected = false;
+    while (try_num <= 3) {
+        std::cout << "[info] 서버 접속 시도 " << try_num << "/3" << std::endl;
+        if (connect_server(port)) { connected = true; break; }
+        std::cout << "[error] 접속 실패" << std::endl;
         try_num++;
-        if(connect_server())
-            break;
-        std::cout << "[error] Fail to connect to server" << std::endl; 
-    } while (try_num <= 3);
-    if(try_num > 3) return;
-    
-    std::cout << "[info] Success to connect Server!" << std::endl;
+    }
+    if (!connected) return;
 
-    // 상태 설정
-    state_ = ClientState::LOBBY;
+    std::cout << "[info] 서버 접속 성공 (port " << port << ")" << std::endl;
 
-    // Epoll 등록
     events_.resize(MAX_EVENTS);
     epoll_.add(sock_->get(), EPOLLIN);
     epoll_.add(STDIN_FILENO, EPOLLIN);
-
-    // running flag 초기화
-    running_ = false;
 }
 
 Client::~Client() {}
 
-bool Client::connect_server() {
-    try{
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) perror("socket");
-    sock_ = Socket(fd);
-    } catch (const std::runtime_error& e) {
-        std::cerr << "[error] " << e.what() << std::endl;
-        return false;
-    }
+bool Client::is_connected() const { return sock_.has_value(); }
 
-    struct sockaddr_in addr;
+bool Client::connect_server(uint16_t port) {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) { perror("socket"); return false; }
+
+    sockaddr_in addr{};
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK); // 내부 테스트용
-    addr.sin_port = htons(8080);
+    addr.sin_port = htons(port);
 
-    if (connect(sock_->get(), (struct sockaddr *)&addr, sizeof(addr)) < 0){
+    if (connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
         perror("connect");
+        ::close(fd);
         return false;
     }
 
+    sock_ = Socket(fd);
+    return true;
+}
+
+bool Client::validate_room_id(uint32_t room_id) const {
+    if (room_id == 0) {
+        std::cout << "[error] 방 번호는 1 이상이어야 합니다" << std::endl;
+        return false;
+    }
+    if (room_id == LOBBY_ROOM_ID) {
+        std::cout << "[error] " << LOBBY_ROOM_ID
+                  << "번은 로비 전용 번호라 직접 입장하거나 만들 수 없습니다."
+                  << " 접속하면 자동으로 로비에 들어가 있습니다." << std::endl;
+        return false;
+    }
     return true;
 }
 
 bool Client::setup_command() {
     commands_lobby_["/create"] = [this](std::istringstream& args) {
-        uint16_t room_id;
-        if (args >> room_id) {
-            if(send_request(CMD_CREATE_ROOM, room_id))      std::cout << "[debug] Create Room Request sended" << std::endl;
-            else    std::cout << "[error] Fail to send Request" << std::endl;
-        } else {
-            std::cout << "[error] please write '/create [room_id]'" << std::endl;
+        uint32_t room_id;
+        if (!(args >> room_id)) {
+            std::cout << "[error] 사용법: /create [room_id]" << std::endl;
+            return;
         }
+        if (!validate_room_id(room_id))
+            return;
+        if (!send_request(Command::CMD_CREATE_ROOM, room_id))
+            std::cout << "[error] 요청 전송 실패" << std::endl;
     };
 
     commands_lobby_["/join"] = [this](std::istringstream& args) {
-        uint16_t room_id;
-        if (args >> room_id) {
-            if (send_request(CMD_JOIN_ROOM, room_id))       std::cout << "[debug] Join the Room Request sended" << std::endl;
-            else    std::cout << "[error] Fail to send Request" << std::endl;
-        } else {
-            std::cout << "[error] please write '/join [room_id]'" << std::endl;
+        uint32_t room_id;
+        if (!(args >> room_id)) {
+            std::cout << "[error] 사용법: /join [room_id]" << std::endl;
+            return;
         }
+        if (!validate_room_id(room_id))
+            return;
+        if (!send_request(Command::CMD_JOIN_ROOM, room_id))
+            std::cout << "[error] 요청 전송 실패" << std::endl;
     };
 
-    commands_lobby_["/exit"] = [this](std::istringstream& args) {
-        std::cout << "[info] Program exit" << std::endl;
+    commands_lobby_["/exit"] = [this](std::istringstream&) {
+        std::cout << "[info] 종료합니다" << std::endl;
         running_ = false;
     };
 
-    commands_room_["/leave"] = [this](std::istringstream& args) {
-        if (send_request(CMD_LEAVE_ROOM, room_id_))     std::cout << "[debug] Leave the Room Request sended" << std::endl;
-        else    std::cout << "[error] Fail to send Request" << std::endl;
+    commands_room_["/leave"] = [this](std::istringstream&) {
+        if (!send_request(Command::CMD_LEAVE_ROOM, room_id_))
+            std::cout << "[error] 요청 전송 실패" << std::endl;
+    };
+
+    commands_room_["/exit"] = [this](std::istringstream&) {
+        std::cout << "[info] 종료합니다" << std::endl;
+        running_ = false;
     };
 
     return true;
 }
 
-void Client::run(){
+void Client::print_prompt() const {
+    if (state_ == ClientState::LOBBY)
+        std::cout << "[로비] /create [번호] | /join [번호] | /exit" << std::endl;
+    else
+        std::cout << "[방 " << room_id_ << "] 메시지 입력 | /leave | /exit" << std::endl;
+}
+
+void Client::run() {
+    if (!sock_) {
+        std::cout << "[error] 서버에 접속하지 못해 실행할 수 없습니다" << std::endl;
+        return;
+    }
+
     running_ = true;
-    std::cout << "[info] start running" << std::endl;
+    print_prompt();
 
-    while(running_) {
-        std::cout << "[debug][epoll] waiting new event" << std::endl;
+    while (running_) {
         int n = epoll_.wait(events_);
-        std::cout << "[debug][epoll] new event n: " << n << std::endl;
-        
-        for (int i=0; i<n && running_; i++){
-            int event = events_[i].data.fd;
 
-            if (event == STDIN_FILENO)
+        for (int i = 0; i < n && running_; i++) {
+            int fd = events_[i].data.fd;
+
+            if (fd == STDIN_FILENO) {
                 handle_input();
-            else if (event == sock_->get())
-                handle_packet();
+            }
+            else if (fd == sock_->get()) {
+                if (!handle_packet()) {
+                    std::cout << "[info] 서버와의 연결이 끊어졌습니다" << std::endl;
+                    running_ = false;
+                }
+            }
         }
     }
 }
 
-
 std::string Client::read_line() {
     char buf[1024];
-    int bytes = read(STDIN_FILENO, buf, sizeof(buf) - 1);
+    ssize_t bytes = read(STDIN_FILENO, buf, sizeof(buf) - 1);
     if (bytes <= 0) return "";
 
     // 개행 제거
-    if (bytes > 0 && buf[bytes - 1 == '\n'])
+    while (bytes > 0 && (buf[bytes - 1] == '\n' || buf[bytes - 1] == '\r'))
         bytes--;
 
     return std::string(buf, bytes);
 }
 
-bool Client::send_request(Command cmd, uint16_t room_id, const std::string& body) {
-    Header header;
-    header.type = PKT_REQUEST;
+bool Client::send_request(Command cmd, uint32_t room_id, const std::string& body) {
+    Header header{};
+    header.type = PacketType::PKT_REQUEST;
 
-    Request req;
-    req.command = cmd;
-    req.room_id = room_id;
-    req.body_len = body.size();
+    Request req{};
+    req.command  = cmd;
+    req.room_id  = room_id;
+    req.body_len = static_cast<uint32_t>(body.size());
 
     sock_->pack(&header, sizeof(Header));
     sock_->pack(&req, sizeof(Request));
-    if (body.size() > 0)
+    if (!body.empty())
         sock_->pack(body.data(), body.size());
-    if(!sock_->flush())
+
+    if (!sock_->flush())
         return false;
 
-    pending_command_ = cmd;
+    pending_ = Pending{cmd, room_id};
     return true;
 }
 
-bool Client::handle_input(){
-    if(pending_command_){
-        std::cout << "[info] Processing request..." << std::endl;
+bool Client::handle_input() {
+    // 입력은 항상 소비해야 한다. 소비하지 않으면 level-trigger epoll 이 계속 깨어난다.
+    std::string input = read_line();
+
+    if (pending_) {
+        std::cout << "[info] 이전 요청(" << command_text(pending_->command)
+                  << ")의 응답을 기다리는 중입니다" << std::endl;
         return false;
     }
 
-    std::cout << "[debug][input] new input" << std::endl;
+    if (input.empty())
+        return true;
 
-    std::string input = read_line();
     std::istringstream stream(input);
     std::string cmd;
     stream >> cmd;
 
-    if (state_ == ClientState::LOBBY){
+    if (state_ == ClientState::LOBBY) {
         auto itr = commands_lobby_.find(cmd);
-        if (itr != commands_lobby_.end())   itr->second(stream); // 로비 명령어 실행
-        else    std::cout << "[error] This command does not exist." << std::endl;
-    } else if (state_ == ClientState::IN_ROOM){
+        if (itr != commands_lobby_.end())
+            itr->second(stream);
+        else
+            std::cout << "[error] 로비에서는 /create, /join, /exit 만 사용할 수 있습니다" << std::endl;
+    }
+    else {
         auto itr = commands_room_.find(cmd);
-        if (itr != commands_room_.end())    itr->second(stream); // 룸 명령어 실행
-        else {
-            if(!send_request(CMD_SEND_MESSAGE, room_id_, input))
-                std::cout << "[error] Fail to send message" << std::endl;
-        }
+        if (itr != commands_room_.end())
+            itr->second(stream);
+        else if (!send_request(Command::CMD_SEND_MESSAGE, room_id_, input))
+            std::cout << "[error] 메시지 전송 실패" << std::endl;
     }
 
     return true;
 }
 
-bool Client::handle_packet(){
-    Header header;
+bool Client::handle_packet() {
+    Header header{};
     if (!sock_->recv_all(&header, sizeof(Header)))
         return false;
 
-    std::cout << "[debug][packet] new packet" << std::endl;
-
-    switch(header.type)
-    {
-    case PKT_RESPONSE:  handle_response();  break;
-    case PKT_BROADCAST: handle_broadcast(); break;
+    switch (header.type) {
+    case PacketType::PKT_RESPONSE:  return handle_response();
+    case PacketType::PKT_BROADCAST: return handle_broadcast();
     default:
-        break;
+        std::cout << "[error] 알 수 없는 패킷 종류: "
+                  << static_cast<int>(header.type) << " — 연결을 종료합니다" << std::endl;
+        return false;   // 스트림 정렬이 깨졌으므로 복구 불가
+    }
+}
+
+bool Client::handle_response() {
+    Response res{};
+    if (!sock_->recv_all(&res, sizeof(Response)))
+        return false;
+
+    // 본문은 결과와 무관하게 항상 끝까지 읽어야 스트림 정렬이 유지된다.
+    std::string body(res.body_len, '\0');
+    if (res.body_len > 0 && !sock_->recv_all(body.data(), res.body_len))
+        return false;
+
+    if (!pending_) {
+        std::cout << "[error] 요청하지 않은 응답을 받았습니다" << std::endl;
+        return true;
+    }
+    if (pending_->command != res.command) {
+        std::cout << "[error] 응답 명령 불일치 (요청=" << command_text(pending_->command)
+                  << ", 응답=" << command_text(res.command) << ")" << std::endl;
+        pending_.reset();
+        return true;
     }
 
+    const uint32_t requested_room = pending_->room_id;
+    const Command  cmd            = pending_->command;
+    pending_.reset();
+
+    if (res.status != ResponseResultCode::Success) {
+        std::cout << "[실패] " << command_text(cmd) << ": " << status_text(res.status) << std::endl;
+        print_prompt();
+        return true;
+    }
+
+    // 응답에는 room_id 가 실려오지 않으므로 요청 시 기억해 둔 값을 사용한다.
+    switch (cmd) {
+    case Command::CMD_CREATE_ROOM:
+        room_id_ = requested_room;
+        state_   = ClientState::IN_ROOM;
+        std::cout << "[성공] 방 " << room_id_ << " 을(를) 만들고 입장했습니다" << std::endl;
+        break;
+
+    case Command::CMD_JOIN_ROOM:
+        room_id_ = requested_room;
+        state_   = ClientState::IN_ROOM;
+        std::cout << "[성공] 방 " << room_id_ << " 에 입장했습니다" << std::endl;
+        break;
+
+    case Command::CMD_LEAVE_ROOM:
+        std::cout << "[성공] 방 " << room_id_ << " 에서 나왔습니다" << std::endl;
+        room_id_ = 0;
+        state_   = ClientState::LOBBY;
+        break;
+
+    case Command::CMD_SEND_MESSAGE:
+        break;      // 전송 성공은 따로 출력하지 않는다
+    }
+
+    print_prompt();
     return true;
 }
 
-bool Client::handle_response() {    
-    // TODO: 실패 코드 반환 -> 코드에 따른 처리 or 내부적으로 처리
-    // 함수 종료시 자동으로 pending_command_ 리셋
-    auto guard = [this]() { pending_command_.reset(); };
-    struct ScopeGuard {
-        std::function<void()> fn;
-        ~ScopeGuard() { fn(); }
-    } scope_guard{guard};
-
-    std::cout << "[debug][response] new response" << std::endl;
-
-    Response res;
-
-    if (!sock_->recv_all(&res, sizeof(Response)))    // 패킷 무결성 검사
-        return false;
-    if (pending_command_ != res.command)     // 대기중인 요청 비교
-        return false;
-    if (res.status != 0){        // 요청 실패
-        std::string body(res.body_len, '\0');
-        if (!sock_->recv_all(body.data(), res.body_len))
-            return false;
-        std::cout << "[error] Request Fail: " << body << std::endl;
-        return false;
-    }
-
-    std::cout << "[debug][response] no error response" << std::endl;
-
-    switch(res.command)
-    {
-    case CMD_CREATE_ROOM:{
-        std::cout << "[debug][response][create] response for create room " << std::endl;
-        if (res.body_len != sizeof(uint16_t)){
-            std::cout << "[error][response][create] ";
-            std::string errmsg(res.body_len, '\0');
-            sock_->recv_all(errmsg.data(), res.body_len);
-            std::cout << errmsg << std::endl;
-            return false;
-        }
-        if (!sock_->recv_all(&room_id_, res.body_len)){
-            std::cout << "[error][response][create][recv]" << std::endl;
-            return false;
-        }
-        if (state_ != ClientState::LOBBY){
-            std::cout << "[error][response][create][state] you are not in lobby" << std::endl;
-            return false;
-        }
-
-        state_ = ClientState::IN_ROOM;
-
-        std::cout << "[info] Create Room " << room_id_ << std::endl;
-        std::cout << "[info] Join Room " << room_id_ << std::endl;
-        break;
-    }
-    case CMD_JOIN_ROOM: {
-        std::cout << "[debug][response][join] response for join room " << std::endl;
-        if (res.body_len != sizeof(uint16_t)){
-            std::string errmsg(res.body_len, '\0');
-            sock_->recv_all(errmsg.data(), res.body_len);
-            std::cout << "[error][response][create]" << errmsg << std::endl;
-            return false;
-        }
-        if (!sock_->recv_all(&room_id_, res.body_len))
-            return false;
-        if (state_ != ClientState::LOBBY)
-            return false;
-
-        state_ = ClientState::IN_ROOM;
-
-        std::cout << "[info] Join Room " << room_id_ << std::endl; 
-        break;
-    }
-    case CMD_LEAVE_ROOM: {
-        if (state_ != ClientState::IN_ROOM)
-            return false;
-
-        state_ = ClientState::LOBBY;
-
-        std::cout << "[info] Leave Room " << room_id_ << std::endl;
-        room_id_ = NULL;
-        break;
-    }
-    }
-    return true;
-}
-
-bool Client::handle_broadcast() {   
-    // TODO: 실패 코드 반환 -> 코드에 따른 처리 or 내부적으로 처리
-    if(state_ == ClientState::LOBBY)    // 임시 조치 -> 현재 로비에서 받을 braodcast 없음
-        return false;
-    
-    Broadcast broad;
-
+bool Client::handle_broadcast() {
+    Broadcast broad{};
     if (!sock_->recv_all(&broad, sizeof(Broadcast)))
         return false;
-    if (broad.room_id != room_id_)
-        return false;
-            
+
     std::string body(broad.body_len, '\0');
-    if (!sock_->recv_all(body.data(), broad.body_len))
+    if (broad.body_len > 0 && !sock_->recv_all(body.data(), broad.body_len))
         return false;
-            
-    std::cout << broad.sender_id << ": " << body << std::endl; // 임시 조치 -> 이벤트에 따른 분기 처리
+
+    // 내가 속한 방의 것이 아니면 무시 (스트림은 이미 정상적으로 소비했다)
+    if (state_ != ClientState::IN_ROOM || broad.room_id != room_id_)
+        return true;
+
+    switch (broad.event) {
+    case Protocol::Event::EVT_MESSAGE:
+        std::cout << "  유저" << broad.sender_id << ": " << body << std::endl;
+        break;
+    case Protocol::Event::EVT_USER_JOIN:
+        std::cout << "  * 유저" << broad.sender_id << " 님이 입장했습니다" << std::endl;
+        break;
+    case Protocol::Event::EVT_USER_LEAVE:
+        std::cout << "  * 유저" << broad.sender_id << " 님이 퇴장했습니다" << std::endl;
+        break;
+    }
+
     return true;
 }

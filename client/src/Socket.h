@@ -10,18 +10,19 @@
 class Socket {
 private:
     int fd_;
-    // std::vector<char> send_buf_;
+    std::vector<char> send_buf_;    // flush 전까지 모아두는 송신 버퍼
 public:
     explicit Socket(int fd);
     ~Socket();
 
     int get() const;
     int release();
-    // void pack(const void* data, size_t len);    // 송신할 데이터 버퍼에 저장
-    // bool flush();                               // 버퍼에 있는 모든 데이터 송신
-    // bool send_all(const void* data, size_t len);    // 데이터 송신
-    // bool recv_all(void* buf, size_t len);           // 데이터 수신
-    // void buf_clear();
+
+    void pack(const void* data, size_t len);        // 송신할 데이터 버퍼에 저장
+    bool flush();                                   // 버퍼에 있는 모든 데이터 송신
+    bool send_all(const void* data, size_t len);    // len 바이트 전부 송신
+    bool recv_all(void* buf, size_t len);           // len 바이트 전부 수신
+    void buf_clear();
 
     ssize_t recv(char* buf, size_t len);
     ssize_t send(const char* buf, size_t len);

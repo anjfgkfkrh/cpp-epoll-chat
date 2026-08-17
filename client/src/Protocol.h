@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstring>
 #include <vector>
 #include "Result.h"
 
@@ -29,17 +30,17 @@ namespace Protocol {
         PacketType type;      // 패킷 종류
     };
 
+    struct Request {
+        Command command;   // 기능 번호
+        uint32_t room_id;   // 룸 번호
+        uint32_t body_len;  // 데이터 길이
+    };
+
     // 패킷을 감싸서 객체간 쉽게 넘기기위한 구조체
     struct Packet {
         Header header;
         Request request;
         std::vector<std::byte> body;
-    };
-
-    struct Request {
-        Command command;   // 기능 번호
-        uint16_t room_id;   // 룸 번호
-        uint32_t body_len;  // 데이터 길이
     };
 
     struct Response {
@@ -58,7 +59,7 @@ namespace Protocol {
     template <typename T>
     std::vector<std::byte> serialize_packet(const Header& header, const T& packet, const std::vector<std::byte>& body = {}) {
         std::vector<std::byte> data;
-        data.resize(sizeof(Header) + sizeof(T) + sizeof(body.size()));
+        data.resize(sizeof(Header) + sizeof(T) + body.size());
 
         ssize_t offset = 0;
         
@@ -69,7 +70,7 @@ namespace Protocol {
         offset += sizeof(T);
 
         if(!body.empty())
-            std::memcpy(data.data() + offset, body.data(), sizeof(body.size()));
+            std::memcpy(data.data() + offset, body.data(), body.size());
 
         return data;
     }

@@ -1,9 +1,11 @@
 CXX := g++
-CXXFLAGS := -Wall -O2 -std=c++20 -Wextra
+CXXFLAGS := -Wall -Wextra -std=c++20 -pthread
 DEBUGFLAGS := -g -O0
-RELEASEFLAGS := -02
+RELEASEFLAGS := -O2
 
-SERV_INC := -Iserver/src
+# 헤더가 하위 디렉터리에 흩어져 있고 파일명만으로 include 하므로 전부 추가해야 한다
+SERV_INC := -Iserver/src -Iserver/src/core -Iserver/src/network -Iserver/src/user \
+            -Iserver/src/room -Iserver/src/event -Iserver/src/protocol -Iserver/src/server
 CLIE_INC := -Iclient/src
 
 
@@ -19,28 +21,31 @@ CLIE_OBJ := $(CLIE_SRC:.cpp=.o)
 all: release
 
 debug: CXXFLAGS += $(DEBUGFLAGS)
-debug: $(SERVER_TARGET) $(CLIENT_TARGET)
+debug: $(SERV_TARGET) $(CLIE_TARGET)
 
 release: CXXFLAGS += $(RELEASEFLAGS)
-release: $(SERVER_TARGET) $(CLIENT_TARGET)
+release: $(SERV_TARGET) $(CLIE_TARGET)
+
+server: $(SERV_TARGET)
+client: $(CLIE_TARGET)
 
 
-$(SERVER_TARGET): $(SERVER_OBJ)
-	$(CXX) $(CXXFLAGS) -o $@ $(SERVER_OBJ)
+$(SERV_TARGET): $(SERV_OBJ)
+	$(CXX) $(CXXFLAGS) -o $@ $(SERV_OBJ)
 
-$(CLIENT_TARGET): $(CLIENT_OBJ)
-	$(CXX) $(CXXFLAGS) -o $@ $(CLIENT_OBJ)
+$(CLIE_TARGET): $(CLIE_OBJ)
+	$(CXX) $(CXXFLAGS) -o $@ $(CLIE_OBJ)
 
-server/src/%.o: server/src/%.cpp
-	$(CXX) $(CXXFLAGS) $(SERVER_INC) -c $< -o $@
+server/%.o: server/%.cpp
+	$(CXX) $(CXXFLAGS) $(SERV_INC) -c $< -o $@
 
-client/src/%.o: client/src/%.cpp
-	$(CXX) $(CXXFLAGS) $(CLIENT_INC) -c $< -o $@
+client/%.o: client/%.cpp
+	$(CXX) $(CXXFLAGS) $(CLIE_INC) -c $< -o $@
 
 clean:
-	rm -f $(SERVER_OBJ) $(CLIENT_OBJ)
-	rm -f $(SERVER_TARGET) $(CLIENT_TARGET)
+	rm -f $(SERV_OBJ) $(CLIE_OBJ)
+	rm -f $(SERV_TARGET) $(CLIE_TARGET)
 
 re: clean all
 
-.PHONY: all debug release clean re
+.PHONY: all debug release server client clean re
