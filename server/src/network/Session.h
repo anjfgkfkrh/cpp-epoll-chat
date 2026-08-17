@@ -3,6 +3,7 @@
 #include <vector>
 #include <queue>
 #include <atomic>
+#include <mutex>
 
 #include "Socket.h"
 #include "Protocol.h"
@@ -29,6 +30,9 @@ private:
     std::queue<SendBuffer> send_queue_;
     Socket sock_;
     std::atomic<bool> disconnecting_;
+    std::mutex send_queue_mutex_;
+    std::atomic<bool> sending_;
+
 
 public:
     Session(Socket&& sock);
@@ -44,4 +48,7 @@ public:
 
     inline void mark_disconnecting() { disconnecting_.store(true); }
     inline bool is_disconnecting() { return disconnecting_.load(); }
+
+private:
+    bool is_send_queue_empty();
 };

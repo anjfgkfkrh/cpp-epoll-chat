@@ -1,4 +1,5 @@
 #include "Socket.h"
+#include <cerrno>
 
 Socket::Socket(int fd): fd_(fd) {
     if (fd_ < 0) throw std::runtime_error("socket failed");
@@ -14,7 +15,7 @@ ssize_t Socket::recv(char* buf, size_t len){
 }
 
 ssize_t Socket::send(const char* buf, size_t len){
-    return ::send(fd_, buf, len, 0);
+    return ::send(fd_, buf, len, MSG_NOSIGNAL);
 }
 
 // 이동 허용

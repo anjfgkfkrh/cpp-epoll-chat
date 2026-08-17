@@ -65,7 +65,16 @@ void RoomManager::dispatch_packet(Packet&& packet, std::shared_ptr<Session> sess
         break;
     }
     
-    route_event(std::move(room_event), worker_id);
+    // route_event 호출 및 실패 시 핸들링
+    if(route_event(std::move(room_event), worker_id) != Result::Success) {
+        RoomEvent fail;
+        fail.session = session;
+        fail.initial_command = packet.request.command;
+        fail.result_code = Result::RoomNotFound;
+        fail.target_room_id = LOBBY_ROOM_ID;
+        fail.add_action(ActionCommand::SEND_RESPONSE);
+        route_event(std::move(fail), LOBBY_WORKER_ID);   // 로비 워커는 항상 존재
+    }
 }
 
 
@@ -165,6 +174,7 @@ void RoomManager::plan_create_room(RoomEvent& event) {
         event.add_action(ActionCommand::SEND_RESPONSE, LOBBY_ROOM_ID);
         event.result_code = Result::RoomAlreadyExists;
         event.target_room_id = LOBBY_ROOM_ID;
+        return;
     }
 
 

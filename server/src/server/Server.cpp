@@ -115,9 +115,11 @@ void Server::handle_events() {
     eventfd_read(eventfd_, &value);
 
     MainEvent event;
-    while(!main_events_.empty()){
+    do{
         {   
             std::lock_guard lock(main_event_queue_mutex_);
+            if(main_events_.empty())
+                return;
             event = std::move(main_events_.front());
             main_events_.pop();
         }
@@ -133,7 +135,7 @@ void Server::handle_events() {
             disable_epollout(event.fd);
             break;
         }
-    }
+    } while(true);
 }
 
 
