@@ -14,7 +14,9 @@ BIN_DIR  := $(OUT_DIR)/bin
 
 # 헤더가 하위 디렉터리에 흩어져 있고 파일명만으로 include 하므로 전부 추가해야 한다
 SERV_INC := -Iserver/src -Iserver/src/core -Iserver/src/network -Iserver/src/user \
-            -Iserver/src/room -Iserver/src/event -Iserver/src/protocol -Iserver/src/server
+            -Iserver/src/room -Iserver/src/event -Iserver/src/protocol -Iserver/src/server \
+            -I$(shell pg_config --includedir)
+SERV_LDFLAGS := -lpq
 CLIE_INC := -Iclient/src
 
 
@@ -41,7 +43,7 @@ client: $(CLIE_TARGET)
 
 $(SERV_TARGET): $(SERV_OBJ)
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) -o $@ $(SERV_OBJ)
+	$(CXX) $(CXXFLAGS) -o $@ $(SERV_OBJ) $(SERV_LDFLAGS)
 
 $(CLIE_TARGET): $(CLIE_OBJ)
 	@mkdir -p $(dir $@)
@@ -60,4 +62,7 @@ clean:
 
 re: clean all
 
-.PHONY: all debug release server client clean re
+run: $(SERV_TARGET)
+	@set -a; . ./.env; set +a; ./$(SERV_TARGET)
+
+.PHONY: all debug release server client clean re run
