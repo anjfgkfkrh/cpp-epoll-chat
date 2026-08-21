@@ -2,7 +2,7 @@ DROP TABLE IF EXISTS account, room, messages CASCADE;
 
 -- 계정
 CREATE TABLE account (
-    user_no     BIGSERIAL   PRIMARY KEY,
+    user_id     BIGSERIAL   PRIMARY KEY,
     login_id    VARCHAR(32) NOT NULL UNIQUE,
     pass_hash   TEXT        NOT NULL,
     nickname    VARCHAR(32) NOT NULL,
@@ -21,7 +21,7 @@ CREATE TABLE room (
 CREATE TABLE messages (
     id          BIGSERIAL,
     room_id     BIGINT      NOT NULL,
-    sender_no   BIGINT      NOT NULL,
+    sender_id   BIGINT      NOT NULL,
     sender_nick VARCHAR(32) NOT NULL,
     content     TEXT        NOT NULL,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),

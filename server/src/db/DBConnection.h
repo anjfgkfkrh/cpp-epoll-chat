@@ -15,7 +15,7 @@ public:
 
     DBConnection(const DBConnection&) = delete;
     DBConnection& operator=(const DBConnection&) = delete;
-    DBConnection(DBConnection&&) noexcept;
+    DBConnection(DBConnection&& other) noexcept : conn_(other.conn_) { other.conn_ = nullptr; }
 
     DBResult exec_once(const char* sql, const std::vector<std::string>& params);
     DBResult exec(const char* sql, const std::vector<std::string>& params);

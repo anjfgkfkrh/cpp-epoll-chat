@@ -8,11 +8,6 @@ DBConnection::DBConnection(const std::string& conninfo) {
         std::cerr << "DB 연결 실패: " << PQerrorMessage(conn_) << std::endl;
 }
 
-DBConnection::DBConnection(DBConnection&& other) noexcept {
-    conn_ = other.conn_;
-    other.conn_ = nullptr;
-}
-
 DBResult DBConnection::exec_once(const char* sql, const std::vector<std::string>& params) {
     std::vector<const char*> values;
     values.reserve(params.size());

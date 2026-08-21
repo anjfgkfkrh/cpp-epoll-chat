@@ -13,7 +13,7 @@ OBJ_CLIE := $(OUT_DIR)/client
 BIN_DIR  := $(OUT_DIR)/bin
 
 # 헤더가 하위 디렉터리에 흩어져 있고 파일명만으로 include 하므로 전부 추가해야 한다
-SERV_INC := -Iserver/src -Iserver/src/core -Iserver/src/network -Iserver/src/user \
+SERV_INC := -Iserver/src -Iserver/src/core -Iserver/src/network -Iserver/src/user -Iserver/src/auth \
             -Iserver/src/room -Iserver/src/event -Iserver/src/protocol -Iserver/src/server \
             -I$(shell pg_config --includedir)
 SERV_LDFLAGS := -lpq
