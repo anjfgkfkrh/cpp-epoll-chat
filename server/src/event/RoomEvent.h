@@ -3,14 +3,23 @@
 #include "Protocol.h"
 #include "Result.h"
 #include "EventState.h"
+#include "Session.h"
+
 #include <memory>
 #include <array>
+#include <limits>
+
+constexpr uint32_t PENDING_ROOM_ID = std::numeric_limits<uint32_t>::max();
 
 enum class ActionCommand : uint8_t {
     CREATE_ROOM,
     JOIN_ROOM,
     LEAVE_ROOM,
     SEND_MESSAGE,
+
+    REQUEST_DB_CREATE_ROOM,
+    REQUEST_DB_LOAD_MESSAGE,
+    SAVE_MESSAGE,
     
     REQUEST_JOIN_ROOM,
     REQUEST_LEAVE_ROOM,
@@ -36,7 +45,8 @@ struct RoomEvent {
 
     int fd = -1;                                // disconnect_session을 위한 변수
     std::shared_ptr<Session> session = nullptr; // Session
-    std::vector<std::byte> data = {};           // body data
+    std::vector<std::byte> request_data = {};           // body data
+    std::vector<std::byte> response_data = {};
 
     Result result_code = Result::None;          // 처리 결과 코드
 
@@ -47,6 +57,13 @@ struct RoomEvent {
         actions[action_len++] = {cmd, room_id};
 
         return true;
+    }
+
+    void resolve_room_id(uint32_t room_id) {
+        for (uint8_t i=0; i<action_len; ++i)
+            if(actions[i].target_room_id == PENDING_ROOM_ID)
+                actions[i].target_room_id = room_id;
+        target_room_id = room_id;
     }
 };
 

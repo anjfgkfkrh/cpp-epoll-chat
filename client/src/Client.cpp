@@ -3,6 +3,7 @@
 #include <iostream>
 #include <sstream>
 #include <cstring>
+#include <ctime>
 #include <arpa/inet.h>
 
 using Protocol::Header;
@@ -21,6 +22,9 @@ const char* status_text(ResponseResultCode s) {
     case ResponseResultCode::RoomAlreadyExists: return "이미 존재하는 방 번호입니다";
     case ResponseResultCode::RoomFull:          return "방이 가득 찼습니다";
     case ResponseResultCode::UserNotFound:      return "해당 방에서 유저를 찾을 수 없습니다";
+    case ResponseResultCode::DBNotFound:        return "데이터를 찾을 수 없습니다";
+    case ResponseResultCode::DBError:           return "데이터베이스 오류가 발생했습니다";
+    case ResponseResultCode::DBDuplicate:       return "이미 존재하는 데이터입니다";
     case ResponseResultCode::None:              return "처리 결과 없음";
     }
     return "알 수 없는 결과";
@@ -32,6 +36,7 @@ const char* command_text(Command c) {
     case Command::CMD_JOIN_ROOM:    return "방 입장";
     case Command::CMD_LEAVE_ROOM:   return "방 퇴장";
     case Command::CMD_SEND_MESSAGE: return "메시지 전송";
+    case Command::CMD_LOAD_MESSAGE: return "과거 메시지 요청";
     }
     return "알 수 없는 명령";
 }
@@ -39,7 +44,7 @@ const char* command_text(Command c) {
 } // namespace
 
 
-Client::Client(uint16_t port) : state_(ClientState::LOBBY), room_id_(0), running_(false) {
+Client::Client(uint16_t port) : state_(ClientState::LOBBY), room_id_(0), oldest_message_id_(0), running_(false) {
     setup_command();
 
     int try_num = 1;
@@ -97,15 +102,10 @@ bool Client::validate_room_id(uint32_t room_id) const {
 }
 
 bool Client::setup_command() {
-    commands_lobby_["/create"] = [this](std::istringstream& args) {
-        uint32_t room_id;
-        if (!(args >> room_id)) {
-            std::cout << "[error] 사용법: /create [room_id]" << std::endl;
-            return;
-        }
-        if (!validate_room_id(room_id))
-            return;
-        if (!send_request(Command::CMD_CREATE_ROOM, room_id))
+    commands_lobby_["/create"] = [this](std::istringstream&) {
+        // 방 번호는 서버가 DB 시퀀스로 발급하므로 클라이언트는 지정하지 않는다.
+        // room_id 자리에는 0을 넣고, 발급된 번호는 응답 body 로 받는다.
+        if (!send_request(Command::CMD_CREATE_ROOM, 0))
             std::cout << "[error] 요청 전송 실패" << std::endl;
     };
 
@@ -126,6 +126,14 @@ bool Client::setup_command() {
         running_ = false;
     };
 
+    commands_room_["/load"] = [this](std::istringstream&) {
+        // 커서: 지금까지 받은 가장 오래된 메시지 id. 0 이면 서버가 최신부터 보내준다.
+        std::string body(sizeof(int64_t), '\0');
+        std::memcpy(body.data(), &oldest_message_id_, sizeof(int64_t));
+        if (!send_request(Command::CMD_LOAD_MESSAGE, room_id_, body))
+            std::cout << "[error] 요청 전송 실패" << std::endl;
+    };
+
     commands_room_["/leave"] = [this](std::istringstream&) {
         if (!send_request(Command::CMD_LEAVE_ROOM, room_id_))
             std::cout << "[error] 요청 전송 실패" << std::endl;
@@ -139,11 +147,35 @@ bool Client::setup_command() {
     return true;
 }
 
+int Client::print_history(const std::string& body) {
+    std::vector<MessageCodec::Message> msgs;
+    if (!MessageCodec::parse(body, msgs))
+        return -1;
+    if (msgs.empty())
+        return 0;
+
+    // 서버는 최신순(DESC)으로 보내므로 화면에는 오래된 것부터 거꾸로 출력한다.
+    std::cout << "──── 이전 메시지 " << msgs.size() << "건 ────" << std::endl;
+    for (auto itr = msgs.rbegin(); itr != msgs.rend(); ++itr) {
+        std::time_t t = static_cast<std::time_t>(itr->created_epoch);
+        std::tm tm{};
+        localtime_r(&t, &tm);
+        char ts[16];
+        std::strftime(ts, sizeof(ts), "%H:%M", &tm);
+        std::cout << "  [" << ts << "] " << itr->sender_nick << ": " << itr->content << std::endl;
+    }
+    std::cout << "────────────────────" << std::endl;
+
+    // 다음 /load 커서: 받은 것 중 가장 오래된 id (DESC 이므로 마지막 원소)
+    oldest_message_id_ = msgs.back().id;
+    return static_cast<int>(msgs.size());
+}
+
 void Client::print_prompt() const {
     if (state_ == ClientState::LOBBY)
-        std::cout << "[로비] /create [번호] | /join [번호] | /exit" << std::endl;
+        std::cout << "[로비] /create | /join [번호] | /exit" << std::endl;
     else
-        std::cout << "[방 " << room_id_ << "] 메시지 입력 | /leave | /exit" << std::endl;
+        std::cout << "[방 " << room_id_ << "] 메시지 입력 | /load | /leave | /exit" << std::endl;
 }
 
 void Client::run() {
@@ -290,26 +322,49 @@ bool Client::handle_response() {
 
     // 응답에는 room_id 가 실려오지 않으므로 요청 시 기억해 둔 값을 사용한다.
     switch (cmd) {
-    case Command::CMD_CREATE_ROOM:
-        room_id_ = requested_room;
+    case Command::CMD_CREATE_ROOM: {
+        // 방 번호는 서버(DB)가 발급하며 응답 body 에 int64 8바이트로 실려온다.
+        if (body.size() < sizeof(int64_t)) {
+            std::cout << "[error] 서버가 방 번호를 보내지 않았습니다" << std::endl;
+            break;
+        }
+        int64_t created = 0;
+        std::memcpy(&created, body.data(), sizeof(created));
+        room_id_ = static_cast<uint32_t>(created);
         state_   = ClientState::IN_ROOM;
+        oldest_message_id_ = 0;         // 새 방이므로 커서 초기화
         std::cout << "[성공] 방 " << room_id_ << " 을(를) 만들고 입장했습니다" << std::endl;
         break;
+    }
 
     case Command::CMD_JOIN_ROOM:
         room_id_ = requested_room;
         state_   = ClientState::IN_ROOM;
+        oldest_message_id_ = 0;         // 방이 바뀌었으므로 커서 초기화
         std::cout << "[성공] 방 " << room_id_ << " 에 입장했습니다" << std::endl;
+        // 서버는 입장 응답 body 에 최근 메시지를 함께 실어 보낸다.
+        if (print_history(body) < 0)
+            std::cout << "[error] 이전 메시지를 해석하지 못했습니다" << std::endl;
         break;
 
     case Command::CMD_LEAVE_ROOM:
         std::cout << "[성공] 방 " << room_id_ << " 에서 나왔습니다" << std::endl;
         room_id_ = 0;
+        oldest_message_id_ = 0;
         state_   = ClientState::LOBBY;
         break;
 
     case Command::CMD_SEND_MESSAGE:
         break;      // 전송 성공은 따로 출력하지 않는다
+
+    case Command::CMD_LOAD_MESSAGE: {
+        int n = print_history(body);
+        if (n < 0)
+            std::cout << "[error] 과거 메시지 응답을 해석하지 못했습니다" << std::endl;
+        else if (n == 0)
+            std::cout << "[info] 더 이상 이전 메시지가 없습니다" << std::endl;
+        break;
+    }
     }
 
     print_prompt();

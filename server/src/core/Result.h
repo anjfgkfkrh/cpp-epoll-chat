@@ -14,6 +14,9 @@ enum class ResponseResultCode : uint8_t {
     RoomAlreadyExists,
     RoomFull,
     UserNotFound,
+    DBNotFound,
+    DBError,
+    DBDuplicate,
 };
 
 enum class Result : uint8_t {
@@ -28,6 +31,9 @@ enum class Result : uint8_t {
     RoomAlreadyExists,
     RoomFull,
     UserNotFound,
+    DBNotFound,
+    DBError,
+    DBDuplicate,
 };
 
 inline ResponseResultCode result_to_resresultcode(Result result) {
@@ -43,6 +49,12 @@ inline ResponseResultCode result_to_resresultcode(Result result) {
         return ResponseResultCode::RoomFull;
     case Result::UserNotFound:
         return ResponseResultCode::UserNotFound;
+    case Result::DBNotFound:
+        return ResponseResultCode::DBNotFound;
+    case Result::DBError:
+        return ResponseResultCode::DBError;
+    case Result::DBDuplicate:
+        return ResponseResultCode::DBDuplicate;
     default:
         return ResponseResultCode::None;
     }

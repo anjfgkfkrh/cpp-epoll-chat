@@ -18,6 +18,7 @@ namespace Protocol {
         CMD_JOIN_ROOM       = 2,    // 룸 참여
         CMD_LEAVE_ROOM      = 3,    // 룸 퇴장
         CMD_SEND_MESSAGE    = 4,    // 메시지 전송
+        CMD_LOAD_MESSAGE    = 5,    // 과거 메시지 요청
     };
 
     enum class Event : uint16_t {

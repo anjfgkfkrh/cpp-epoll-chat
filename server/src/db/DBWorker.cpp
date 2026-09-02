@@ -2,6 +2,7 @@
 
 #include "AccountRepository.h"
 #include "MessageRepository.h"
+#include "RoomRepository.h"
 
 #include <iostream>
 
@@ -89,6 +90,8 @@ void DBWorker::process_job(DBJob&& job) {
         data = db::account::serialize(res);
         break;
     case DBJobType::CreateRoom:
+        res = db::room::create(conn_, job.params);
+        data = db::room::serialize(res);
         break;
     case DBJobType::FindAccount:
         res = db::account::find(conn_, job.params);
@@ -96,7 +99,7 @@ void DBWorker::process_job(DBJob&& job) {
         break;
     }
 
-    if(job.on_result)                       // fire-and-forget이면 비어 있다
+    if(job.on_result)
         job.on_result(status_of(job.type, res), std::move(data));
 }
 

@@ -4,6 +4,7 @@
 #include "Protocol.h"
 #include "Session.h"
 #include "RoomEvent.h"
+#include "DBWorker.h"
 
 #include <unordered_map>
 #include <shared_mutex>
@@ -28,7 +29,7 @@ private:
     const int room_worker_num_;
 
 public:
-    RoomManager(UserManager& user_manager, IServerService& sservice);
+    RoomManager(UserManager& user_manager, DBWorker& db, IServerService& sservice);
     ~RoomManager();
 
     void start();
@@ -37,6 +38,7 @@ public:
     void dispatch_packet(Packet&& packet, std::shared_ptr<Session> session); // 새로운 패킷 받아서 RoomEvent 생성 후 post_event()로 라우팅  // Main Thread에서 호출
     Result route_event(RoomEvent&& room_event, uint16_t target_worker_id = 0); // RoomEvent를 RoomWorker에게 라우팅   // Main, Worker Thread에서 호출
 
+    uint16_t bind_room_worker(uint32_t room_id);
     void erase_room_to_worker(uint32_t room_id);
     void disconnect_session(int fd, uint32_t room_id);
 
@@ -44,10 +46,10 @@ public:
 
 private:
     uint16_t find_worker(uint32_t room_id);
-    uint16_t bind_room_worker(uint32_t room_id);
 
     void plan_create_room(RoomEvent& event);
     void plan_join_room(RoomEvent& event);
     void plan_leave_room(RoomEvent& event);
     void plan_send_message(RoomEvent& event);
+    void plan_load_message(RoomEvent& event);
 };

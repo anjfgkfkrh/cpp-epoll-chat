@@ -7,7 +7,7 @@
 #include <stdexcept>
 #include <sys/eventfd.h>
 
-Server::Server(int port, int max_event): port_(port), listener_(create_listner(port)), room_manager_(RoomManager(user_manager_, *this)), total_users_(0) {
+Server::Server(int port, int max_event): port_(port), listener_(create_listner(port)), db_(DBWorker()), room_manager_(RoomManager(user_manager_, db_, *this)), total_users_(0) {
     epoll_.add(listener_.get(), EPOLLIN);
     epoll_events_.resize(max_event);
 
@@ -20,19 +20,21 @@ Server::Server(int port, int max_event): port_(port), listener_(create_listner(p
 
     epoll_.add(eventfd_, EPOLLIN);
 
-    // worker thread 시작
-    room_manager_.start();
-
     std::cout << "[info] Listening on port " << port_ << std::endl;
 }
 
 Server::~Server() {
     room_manager_.stop();
+    db_.stop();
     ::close(eventfd_);
 }
 
 void Server::run() {
     std::cout << "[info] running Server" << std::endl;
+
+    // worker thread 시작
+    db_.start();
+    room_manager_.start();
 
     while(true) {
         int n = epoll_.wait(epoll_events_);

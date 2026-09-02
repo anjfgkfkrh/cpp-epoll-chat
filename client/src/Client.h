@@ -3,6 +3,7 @@
 #include "Socket.h"
 #include "Epoll.h"
 #include "Protocol.h"
+#include "MessageCodec.h"
 
 #include <string>
 #include <optional>
@@ -25,8 +26,9 @@ enum class ClientState {
 class Client {
 private:
     // 서버는 요청 하나당 응답 하나를 보내며, 클라이언트는 그 응답이 올 때까지
-    // 다음 요청을 보내지 않는다. 응답에는 room_id 가 실려오지 않으므로
+    // 다음 요청을 보내지 않는다. JOIN/LEAVE 응답에는 room_id 가 실려오지 않으므로
     // 어떤 방을 대상으로 한 요청이었는지 여기에 기억해 둔다.
+    // (CREATE 는 예외로, 서버가 발급한 room_id 가 응답 body 에 실려온다)
     struct Pending {
         Protocol::Command command;
         uint32_t room_id;
@@ -39,6 +41,8 @@ private:
     std::unordered_map<std::string, std::function<void(std::istringstream&)>> commands_room_;   // 방 명령어
     ClientState state_;                 // 현재 위치 (로비, 방)
     uint32_t room_id_;                  // 현재 접속 중인 room_id
+    int64_t oldest_message_id_;         // 지금까지 받은 가장 오래된 메시지 id (0 = 아직 없음)
+                                        // 다음 /load 의 커서로 쓴다
     bool running_;                      // 작동 플래그
     std::optional<Pending> pending_;    // 응답 대기중인 요청
 
@@ -59,6 +63,10 @@ private:
     bool handle_packet();               // Packet 처리
     bool handle_response();             // Response 처리
     bool handle_broadcast();            // Broadcast 처리
+
+    // 과거 메시지 body 를 해석해 출력하고 다음 /load 커서를 갱신한다.
+    // 반환: 출력한 메시지 수, -1 이면 파싱 실패
+    int  print_history(const std::string& body);
 
     void print_prompt() const;          // 현재 상태에 맞는 안내 출력
 };

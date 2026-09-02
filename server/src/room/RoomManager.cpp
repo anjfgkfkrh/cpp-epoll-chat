@@ -5,15 +5,15 @@
 #include <random>
 
 
-RoomManager::RoomManager(UserManager& user_manager, IServerService& sservice): 
+RoomManager::RoomManager(UserManager& user_manager, DBWorker& db, IServerService& sservice): 
     user_manager_(user_manager), sservice_(sservice), room_worker_num_(std::thread::hardware_concurrency()) {     
     // 로비 전용 RoomWorker 생성
-    room_workers_.emplace(LOBBY_WORKER_ID, std::make_unique<RoomWorker>(LOBBY_ROOM_ID, *this, sservice_, user_manager_, RoomWorker::WorkerType::Lobby));
+    room_workers_.emplace(LOBBY_WORKER_ID, std::make_unique<RoomWorker>(LOBBY_ROOM_ID, *this, sservice_, user_manager_, db, RoomWorker::WorkerType::Lobby));
     room_to_worker_.emplace(LOBBY_ROOM_ID, LOBBY_WORKER_ID);
 
     // Room 전용 RoomWorker 생성, worker_id = 2 ~ room_worker_num
     for(int i=0; i<room_worker_num_ - 1; i++) {
-        room_workers_.emplace(i+2, std::make_unique<RoomWorker>(i+2, *this, sservice_, user_manager_));
+        room_workers_.emplace(i+2, std::make_unique<RoomWorker>(i+2, *this, sservice_, user_manager_, db));
     }
 }
 
@@ -43,7 +43,7 @@ void RoomManager::dispatch_packet(Packet&& packet, std::shared_ptr<Session> sess
     // RoomEvent 생성
     RoomEvent room_event;
     room_event.initial_command = packet.request.command;
-    room_event.data = packet.body;
+    room_event.request_data = packet.body;
     room_event.session = session;
     room_event.target_room_id = packet.request.room_id;
 
@@ -62,6 +62,9 @@ void RoomManager::dispatch_packet(Packet&& packet, std::shared_ptr<Session> sess
         break;
     case Protocol::Command::CMD_SEND_MESSAGE:
         plan_send_message(room_event);
+        break;
+    case Protocol::Command::CMD_LOAD_MESSAGE:
+        plan_load_message(room_event);
         break;
     }
     
@@ -169,29 +172,20 @@ void RoomManager::request_flush(std::shared_ptr<Session> session) {
 }
 
 void RoomManager::plan_create_room(RoomEvent& event) {
-    // 방 중복 검사
-    if(find_worker(event.target_room_id) != 0){
-        event.add_action(ActionCommand::SEND_RESPONSE, LOBBY_ROOM_ID);
-        event.result_code = Result::RoomAlreadyExists;
-        event.target_room_id = LOBBY_ROOM_ID;
-        return;
-    }
-
-
-    // room_id를 미리 worker에 바인드
-    uint16_t worker_id = bind_room_worker(event.target_room_id);
-
-    event.add_action(ActionCommand::CREATE_ROOM, event.target_room_id);
-    event.add_action(ActionCommand::JOIN_ROOM, event.target_room_id);
+    event.add_action(ActionCommand::REQUEST_DB_CREATE_ROOM, LOBBY_ROOM_ID);
+    event.add_action(ActionCommand::CREATE_ROOM, PENDING_ROOM_ID);
+    event.add_action(ActionCommand::JOIN_ROOM, PENDING_ROOM_ID);
     event.add_action(ActionCommand::REQUEST_LEAVE_ROOM, LOBBY_ROOM_ID);
     event.add_action(ActionCommand::LEAVE_ROOM, LOBBY_ROOM_ID);
     event.add_action(ActionCommand::SEND_RESPONSE);
+    event.target_room_id = LOBBY_ROOM_ID;
 }
 
 void RoomManager::plan_join_room(RoomEvent& event) {
     event.add_action(ActionCommand::JOIN_ROOM, event.target_room_id);
     event.add_action(ActionCommand::REQUEST_LEAVE_ROOM, LOBBY_ROOM_ID);
     event.add_action(ActionCommand::LEAVE_ROOM, LOBBY_ROOM_ID);
+    event.add_action(ActionCommand::REQUEST_DB_LOAD_MESSAGE, event.target_room_id);
     event.add_action(ActionCommand::SEND_RESPONSE);
 }
 
@@ -205,5 +199,11 @@ void RoomManager::plan_leave_room(RoomEvent& event) {
 
 void RoomManager::plan_send_message(RoomEvent& event) {
     event.add_action(ActionCommand::SEND_MESSAGE, event.target_room_id);
+    event.add_action(ActionCommand::SAVE_MESSAGE, event.target_room_id);
+    event.add_action(ActionCommand::SEND_RESPONSE);
+}
+
+void RoomManager::plan_load_message(RoomEvent& event) {
+    event.add_action(ActionCommand::REQUEST_DB_LOAD_MESSAGE, event.target_room_id);
     event.add_action(ActionCommand::SEND_RESPONSE);
 }

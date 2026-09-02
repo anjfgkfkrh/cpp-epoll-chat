@@ -26,6 +26,10 @@ inline DBResult load_recent(DBConnection& conn, const std::vector<std::string>& 
     return conn.exec(kSelectRecent, params);
 }
 
+inline std::vector<std::string> params_for_save(uint32_t room_id, uint16_t sender_id, std::string& sender_nick, std::string& content) {
+    return {std::to_string(room_id), std::to_string(sender_id), sender_nick, content};
+}
+
 struct Message {
     int64_t     id;
     int64_t     sender_id;

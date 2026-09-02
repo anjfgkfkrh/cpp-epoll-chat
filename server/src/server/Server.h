@@ -6,6 +6,7 @@
 #include "SessionManager.h"
 #include "RoomManager.h"
 #include "MainEvent.h"
+#include "DBWorker.h"
 
 #include <unordered_map>
 #include <vector>
@@ -24,6 +25,7 @@ private:
     int eventfd_;
     std::vector<epoll_event> epoll_events_;
     std::queue<MainEvent> main_events_;
+    DBWorker db_;
     SessionManager session_manager_;
     UserManager user_manager_;
     RoomManager room_manager_;
@@ -44,7 +46,7 @@ private:
     void handle_events();
     void handle_epollout(int fd);
 
-    void close_session(int fd);        // 클라이언트 연결 끊기
+    void close_session(int fd);             // 클라이언트 연결 끊기
     void enable_epollout(int fd);           // epoll out 활성화
     void disable_epollout(int fd);          // epoll out 비활성화
 

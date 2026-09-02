@@ -15,6 +15,7 @@
 #include "IServerService.h"
 #include "EventState.h"
 #include "UserManager.h"
+#include "DBWorker.h"
 
 using Protocol::Packet;
 class RoomManager;
@@ -34,6 +35,7 @@ private:
 
     RoomManager& manager_;
     IServerService& sservice_;
+    DBWorker& db_;
 
     std::unordered_map<uint32_t, Room> rooms_;
     UserManager& user_manager_;
@@ -45,7 +47,7 @@ private:
     std::condition_variable cv_;
 
 public:
-    RoomWorker(uint16_t worker_id, RoomManager& manager, IServerService& sservice, UserManager& user_manager, WorkerType type = WorkerType::Room);
+    RoomWorker(uint16_t worker_id, RoomManager& manager, IServerService& sservice, UserManager& user_manager, DBWorker& db, WorkerType type = WorkerType::Room);
 
     void start();
     void stop();
@@ -70,4 +72,11 @@ private:
     void flush(std::shared_ptr<Session> session);
 
     void send_packet(const std::shared_ptr<Session>& session, const std::vector<std::byte>& data);
+
+    void request_db_create_room(RoomEvent& event);
+    void request_db_load_message(RoomEvent& event);
+    void save_message(RoomEvent& event);
+
+    void db_load_messages_on_result(RoomEvent&& event, DBStatus status, std::vector<std::byte>&& data);
+    void db_create_room_on_result(RoomEvent&& event, DBStatus status, std::vector<std::byte>&& data);
 };

@@ -1,5 +1,7 @@
 #include "RoomWorker.h"
 #include "RoomManager.h"
+#include "MessageRepository.h"
+#include "Codec.h"
 
 using Protocol::Header;
 using Protocol::Request;
@@ -9,8 +11,8 @@ using Protocol::serialize_packet;
 using Protocol::Command;
 using Protocol::PacketType;
 
-RoomWorker::RoomWorker(uint16_t worker_id, RoomManager& manager, IServerService& sservice, UserManager& user_manager, WorkerType type):
-    worker_id_(worker_id), manager_(manager), sservice_(sservice), user_manager_(user_manager), running_(false), type_(type) {
+RoomWorker::RoomWorker(uint16_t worker_id, RoomManager& manager, IServerService& sservice, UserManager& user_manager, DBWorker& db, WorkerType type):
+    worker_id_(worker_id), manager_(manager), sservice_(sservice), user_manager_(user_manager), db_(db), running_(false), type_(type) {
         if(type_ == WorkerType::Lobby) {
             rooms_.try_emplace(LOBBY_ROOM_ID, LOBBY_ROOM_ID, MAX_LOBBY_SESSIONS);
         }
@@ -68,9 +70,17 @@ void RoomWorker::thread_main() {
 
 void RoomWorker::process_event(RoomEvent&& event) {
     while(event.current_action < event.action_len) {
+        if(event.result_code != Result::Success && event.result_code != Result::None) {  // db 작업 실패 시
+            send_response(event);
+            return;
+        }
+
         auto action = event.actions[event.current_action++];
 
         switch(action.command) {
+        case ActionCommand::REQUEST_DB_CREATE_ROOM:
+            request_db_create_room(event);
+            return;
         case ActionCommand::CREATE_ROOM:
             event.result_code = create_room(event);
             break;
@@ -91,9 +101,15 @@ void RoomWorker::process_event(RoomEvent&& event) {
         case ActionCommand::SEND_MESSAGE:
             event.result_code = send_message(event);
             break;
+        case ActionCommand::REQUEST_DB_LOAD_MESSAGE:
+            request_db_load_message(event);
+            return;
+        case ActionCommand::SAVE_MESSAGE:
+            save_message(event);
+            break;
         case ActionCommand::SEND_RESPONSE:
             send_response(event);
-            break;
+            return;
         case ActionCommand::FLUSH:
             flush(event.session);
             return;
@@ -112,6 +128,16 @@ void RoomWorker::process_event(RoomEvent&& event) {
             return;
         }
     }
+}
+
+void RoomWorker::request_db_create_room(RoomEvent& event) {
+    DBJob dbjob;
+    dbjob.type = DBJobType::CreateRoom;
+    dbjob.on_result = [event = std::move(event), this] (DBStatus status, std::vector<std::byte>&& data) mutable {
+        db_create_room_on_result(std::move(event), status, std::move(data));
+    };
+
+    db_.post_job(std::move(dbjob));
 }
 
 Result RoomWorker::create_room(RoomEvent& event, int max_session) {
@@ -185,9 +211,9 @@ Result RoomWorker::send_message(RoomEvent& event) {
     broad.event = Protocol::Event::EVT_MESSAGE;
     broad.room_id = event.actions[event.current_action-1].target_room_id;
     broad.sender_id = user_manager_.get_user_id(event.session->get_fd());
-    broad.body_len = event.data.size();
+    broad.body_len = event.request_data.size();
 
-    auto data = serialize_packet<Broadcast>(header, broad, event.data);
+    auto data = serialize_packet<Broadcast>(header, broad, event.request_data);
     
     Room& room = itr->second;
 
@@ -214,9 +240,77 @@ void RoomWorker::send_response(RoomEvent& event) {
     Response res;
     res.command = event.initial_command;
     res.status = result_to_resresultcode(event.result_code);
-    res.body_len = event.data.size();
+    res.body_len = event.response_data.size();
 
-    send_packet(event.session, serialize_packet(header, res, event.data));
+    send_packet(event.session, serialize_packet(header, res, event.response_data));
+}
+
+void RoomWorker::save_message(RoomEvent& event) {
+    std::string tempnick = "tempnickname";
+    std::string content(reinterpret_cast<const char*>(event.request_data.data()), event.request_data.size());
+
+    DBJob dbjob;
+    dbjob.type = DBJobType::SaveMessage;
+    dbjob.params = db::message::params_for_save(
+        event.actions[event.current_action-1].target_room_id, 
+        user_manager_.get_user_id(event.session->get_fd()),
+         tempnick,
+         content);
+
+    db_.post_job(std::move(dbjob));
+}
+
+void RoomWorker::request_db_load_message(RoomEvent& event) {
+    uint32_t room_id = event.actions[event.current_action-1].target_room_id;
+    int64_t lasted_message_id = 0;
+    if(event.request_data.size() >= sizeof(int64_t))
+        std::memcpy(&lasted_message_id, event.request_data.data(), sizeof(int64_t));
+    if(lasted_message_id <= 0)
+        lasted_message_id = std::numeric_limits<int64_t>::max();
+
+    DBJob dbjob;
+    dbjob.type = DBJobType::LoadHistory;
+    dbjob.params.emplace_back(std::to_string(room_id));
+    dbjob.params.emplace_back(std::to_string(lasted_message_id));
+    dbjob.on_result = [event = std::move(event), this](DBStatus status, std::vector<std::byte>&& data) mutable {
+        db_load_messages_on_result(std::move(event), status, std::move(data));
+    };
+
+    db_.post_job(std::move(dbjob));
+}
+
+void RoomWorker::db_create_room_on_result(RoomEvent&& event, DBStatus status, std::vector<std::byte>&& data) {
+    db::codec::Reader r{data.data(), data.size()};
+
+    int64_t room_id = 0;
+
+    if(status == DBStatus::Error || !r.take(&room_id, sizeof(room_id))){
+        event.result_code = Result::DBError;
+        this->manager_.route_event(std::move(event), LOBBY_WORKER_ID);
+        return;
+    }
+
+    event.result_code = Result::Success;
+    event.resolve_room_id(static_cast<uint32_t>(room_id));
+    event.response_data = std::move(data);
+    uint16_t worker_id = this->manager_.bind_room_worker(event.target_room_id);
+    this->manager_.route_event(std::move(event), worker_id);
+}
+
+void RoomWorker::db_load_messages_on_result(RoomEvent&& event, DBStatus status, std::vector<std::byte>&& data) {
+    if(status == DBStatus::Success){
+        event.result_code = Result::Success;
+        event.response_data = data;
+    }
+    else if(status == DBStatus::NotFound)
+        event.result_code = Result::DBNotFound;
+    else if(status == DBStatus::Error)
+        event.result_code = Result::DBError;
+    else if(status == DBStatus::Duplicate)
+        event.result_code = Result::DBDuplicate;
+
+    event.target_room_id = event.actions[event.current_action-1].target_room_id;
+    manager_.route_event(std::move(event));
 }
 
 void RoomWorker::flush(std::shared_ptr<Session> session) {
