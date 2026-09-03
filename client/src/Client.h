@@ -3,7 +3,7 @@
 #include "Socket.h"
 #include "Epoll.h"
 #include "Protocol.h"
-#include "MessageCodec.h"
+#include "Message.h"
 #include "Type.h"
 
 #include <string>
@@ -11,6 +11,7 @@
 #include <unordered_map>
 #include <functional>
 #include <sstream>
+#include <cstddef>
 
 #define MAX_EVENTS 128
 
@@ -58,7 +59,7 @@ private:
     bool connect_server(uint16_t port); // 서버 연결
     bool setup_command();               // 명령어 초기화 및 등록
     bool validate_room_id(RoomId room_id) const;  // 요청 전 방 번호 검사 (로비 번호 차단)
-    bool send_request(Protocol::Command cmd, RoomId room_id, const std::string& body = "");
+    bool send_request(Protocol::Command cmd, RoomId room_id, const std::vector<std::byte>& body = {});
 
     bool handle_input();                // 사용자 입력 처리
     bool handle_packet();               // Packet 처리
@@ -67,7 +68,7 @@ private:
 
     // 과거 메시지 body 를 해석해 출력하고 다음 /load 커서를 갱신한다.
     // 반환: 출력한 메시지 수, -1 이면 파싱 실패
-    int  print_history(const std::string& body);
+    int  print_history(const std::vector<std::byte>& body);
 
     void print_prompt() const;          // 현재 상태에 맞는 안내 출력
 };

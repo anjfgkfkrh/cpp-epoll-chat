@@ -27,8 +27,6 @@ void DBWorker::stop() {
     if(thread_.joinable())
         thread_.join();
 
-    // 스레드 종료 후 큐에 남은 job을 실패로 마무리한다.
-    // 그냥 버리면 콜백이 호출되지 않아 요청자가 응답을 영영 기다린다.
     std::lock_guard lock(job_queue_mutex_);
     while(!job_queue_.empty()) {
         auto job = std::move(job_queue_.front());
@@ -79,11 +77,10 @@ void DBWorker::process_job(DBJob&& job) {
     switch(job.type) {
     case DBJobType::SaveMessage:
         res = db::message::save(conn_, job.params);
-        data = db::message::serialize(res);
-        break;
+        break;                                                  // INSERT — 돌려줄 데이터 없음
     case DBJobType::LoadHistory:
         res = db::message::load_recent(conn_, job.params);
-        data = db::message::serialize(res);
+        data = msg::serialize(db::message::to_messages(res));   // DB 추출 → 바이트 변환, 두 단계
         break;
     case DBJobType::CreateAccount:
         res = db::account::create(conn_, job.params);

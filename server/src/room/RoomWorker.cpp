@@ -280,7 +280,7 @@ void RoomWorker::request_db_load_message(RoomEvent& event) {
 }
 
 void RoomWorker::db_create_room_on_result(RoomEvent&& event, DBStatus status, std::vector<std::byte>&& data) {
-    db::codec::Reader r{data.data(), data.size()};
+    codec::Reader r{data};
 
     RoomId room_id = 0;
 

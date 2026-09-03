@@ -30,6 +30,15 @@ const char* status_text(ResponseResultCode s) {
     return "알 수 없는 결과";
 }
 
+// body 는 바이트로 통일한다. 텍스트를 실을 때만 이 두 헬퍼로 건넌다.
+std::vector<std::byte> as_bytes(const std::string& s) {
+    auto p = reinterpret_cast<const std::byte*>(s.data());
+    return { p, p + s.size() };
+}
+std::string to_text(const std::vector<std::byte>& b) {
+    return { reinterpret_cast<const char*>(b.data()), b.size() };
+}
+
 const char* command_text(Command c) {
     switch (c) {
     case Command::CMD_CREATE_ROOM:  return "방 생성";
@@ -128,8 +137,8 @@ bool Client::setup_command() {
 
     commands_room_["/load"] = [this](std::istringstream&) {
         // 커서: 지금까지 받은 가장 오래된 메시지 id. 0 이면 서버가 최신부터 보내준다.
-        std::string body(sizeof(int64_t), '\0');
-        std::memcpy(body.data(), &oldest_message_id_, sizeof(int64_t));
+        std::vector<std::byte> body(sizeof(MessageId));
+        std::memcpy(body.data(), &oldest_message_id_, sizeof(MessageId));
         if (!send_request(Command::CMD_LOAD_MESSAGE, room_id_, body))
             std::cout << "[error] 요청 전송 실패" << std::endl;
     };
@@ -147,9 +156,9 @@ bool Client::setup_command() {
     return true;
 }
 
-int Client::print_history(const std::string& body) {
-    std::vector<MessageCodec::Message> msgs;
-    if (!MessageCodec::parse(body, msgs))
+int Client::print_history(const std::vector<std::byte>& body) {
+    std::vector<msg::Message> msgs;
+    if (!msg::parse(body, msgs))
         return -1;
     if (msgs.empty())
         return 0;
@@ -218,7 +227,7 @@ std::string Client::read_line() {
     return std::string(buf, bytes);
 }
 
-bool Client::send_request(Command cmd, RoomId room_id, const std::string& body) {
+bool Client::send_request(Command cmd, RoomId room_id, const std::vector<std::byte>& body) {
     Header header{};
     header.type = PacketType::PKT_REQUEST;
 
@@ -267,7 +276,7 @@ bool Client::handle_input() {
         auto itr = commands_room_.find(cmd);
         if (itr != commands_room_.end())
             itr->second(stream);
-        else if (!send_request(Command::CMD_SEND_MESSAGE, room_id_, input))
+        else if (!send_request(Command::CMD_SEND_MESSAGE, room_id_, as_bytes(input)))
             std::cout << "[error] 메시지 전송 실패" << std::endl;
     }
 
@@ -295,7 +304,7 @@ bool Client::handle_response() {
         return false;
 
     // 본문은 결과와 무관하게 항상 끝까지 읽어야 스트림 정렬이 유지된다.
-    std::string body(res.body_len, '\0');
+    std::vector<std::byte> body(res.body_len);
     if (res.body_len > 0 && !sock_->recv_all(body.data(), res.body_len))
         return false;
 
@@ -376,7 +385,7 @@ bool Client::handle_broadcast() {
     if (!sock_->recv_all(&broad, sizeof(Broadcast)))
         return false;
 
-    std::string body(broad.body_len, '\0');
+    std::vector<std::byte> body(broad.body_len);
     if (broad.body_len > 0 && !sock_->recv_all(body.data(), broad.body_len))
         return false;
 
@@ -386,7 +395,7 @@ bool Client::handle_broadcast() {
 
     switch (broad.event) {
     case Protocol::Event::EVT_MESSAGE:
-        std::cout << "  유저" << broad.sender_id << ": " << body << std::endl;
+        std::cout << "  유저" << broad.sender_id << ": " << to_text(body) << std::endl;
         break;
     case Protocol::Event::EVT_USER_JOIN:
         std::cout << "  * 유저" << broad.sender_id << " 님이 입장했습니다" << std::endl;

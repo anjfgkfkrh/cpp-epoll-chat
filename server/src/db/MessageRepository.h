@@ -3,6 +3,7 @@
 #include "DBConnection.h"
 #include "DBResult.h"
 #include "Type.h"
+#include "Message.h"
 
 #include <vector>
 #include <string>
@@ -31,15 +32,22 @@ inline std::vector<std::string> params_for_save(RoomId room_id, UserId sender_id
     return {std::to_string(room_id), std::to_string(sender_id), sender_nick, content};
 }
 
-struct Message {
-    MessageId   id;
-    UserId      sender_id;
-    int64_t     created_epoch;
-    std::string sender_nick;
-    std::string content;
-};
+// 조회 결과를 도메인 구조체로 옮긴다. 컬럼명을 아는 것은 이 계층뿐이며,
+// 바이트 변환은 msg::serialize() 가 맡는다.
+inline std::vector<msg::Message> to_messages(const DBResult& res) {
+    std::vector<msg::Message> out;
+    out.reserve(res.rows());
 
-std::vector<std::byte> serialize(const DBResult& res);
-bool parse(const std::vector<std::byte>& data, std::vector<Message>& out);
+    for (int i = 0; i < res.rows(); ++i) {
+        msg::Message m;
+        m.id            = res.get_int64(i, "id");
+        m.sender_id     = res.get_int64(i, "sender_id");
+        m.created_epoch = res.get_int64(i, "created_epoch");
+        m.sender_nick   = res.get_string(i, "sender_nick");
+        m.content       = res.get_string(i, "content");
+        out.push_back(std::move(m));
+    }
+    return out;
+}
 
 }
