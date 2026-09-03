@@ -1,19 +1,19 @@
 #pragma once
 
-#include <cstdint>
 #include <cstring>
 #include <vector>
 #include "Result.h"
+#include "Type.h"
 
 // 네트워크 통신에 사용되는 프로토콜을 정의한 헤더 파일
 namespace Protocol {
-    enum class PacketType : uint16_t {
+    enum class PacketType : uint8_t {
         PKT_REQUEST     = 1,    // Request 패킷
         PKT_RESPONSE    = 2,    // Response 패킷
         PKT_BROADCAST   = 3,    // Broadcast 패킷
     };
 
-    enum class Command : uint16_t {
+    enum class Command : uint8_t {
         CMD_CREATE_ROOM     = 1,    // 룸 생성
         CMD_JOIN_ROOM       = 2,    // 룸 참여
         CMD_LEAVE_ROOM      = 3,    // 룸 퇴장
@@ -21,7 +21,7 @@ namespace Protocol {
         CMD_LOAD_MESSAGE    = 5,    // 과거 메시지 요청
     };
 
-    enum class Event : uint16_t {
+    enum class Event : uint8_t {
         EVT_MESSAGE     = 1,    // 채팅 메시지
         EVT_USER_JOIN   = 2,    // 유저 입장
         EVT_USER_LEAVE  = 3,    // 유저 퇴장
@@ -32,29 +32,29 @@ namespace Protocol {
     };
 
     struct Request {
-        Command command;   // 기능 번호
-        uint32_t room_id;   // 룸 번호
+        RoomId room_id;     // 룸 번호
         uint32_t body_len;  // 데이터 길이
+        Command command;    // 기능 번호
     };
 
-    // 패킷을 감싸서 객체간 쉽게 넘기기위한 구조체
+    struct Response {
+        uint32_t body_len;          // 데이터 길이
+        Command command;            // 기능 번호
+        ResponseResultCode status;  // 처리 결과
+    };
+
+    struct Broadcast {
+        UserId sender_id; // 송신자
+        RoomId room_id;   // 방 번호
+        uint32_t body_len;  // 메시지 길이
+        Event event;     // 이벤트 종류
+    };
+
+    // 패킷을 감싸서 서버 내부 객체간 쉽게 넘기기위한 구조체
     struct Packet {
         Header header;
         Request request;
         std::vector<std::byte> body;
-    };
-
-    struct Response {
-        Command command;   // 기능 번호
-        ResponseResultCode status;    // 처리 결과    0: 성공, 1: 실패
-        uint32_t body_len;  // 데이터 길이
-    };
-
-    struct Broadcast {
-        Event event;     // 이벤트 종류
-        uint16_t sender_id; // 송신자
-        uint32_t room_id;   // 방 번호
-        uint32_t body_len;  // 메시지 길이
     };
 
     template <typename T>

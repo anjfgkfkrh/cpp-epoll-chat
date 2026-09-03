@@ -45,7 +45,7 @@ epoll 조작이 필요할 때만 `IServerService` → `eventfd`로 메인 스레
 | `RoomManager` | 호출 스레드 (Main + Worker) | `RoomWorker[]` 소유. 패킷을 `RoomEvent`로 만들어 담당 워커에게 라우팅 | ✅ |
 | `RoomWorker` | 전용 | 방을 소유하고 `RoomEvent`의 Action을 순차 실행. `WorkerType::Lobby`인 워커 하나가 로비를 전담 | ✅ |
 | `AuthWorker` | 전용 (2~4개) | 비밀번호 해시 생성·검증(Argon2id). CPU 바운드라 코어 수에 맞춰 확장 | 🚧 |
-| `DBWorker` | 전용 (1개) | 모든 DB 작업 전담. `DBJob` 큐로 요청 수신 | 🚧 |
+| `DBWorker` | 전용 (1개) | 모든 DB 작업 전담. `DBJob` 큐로 요청 수신 | ✅ |
 
 ### 로비
 

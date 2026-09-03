@@ -2,11 +2,11 @@
 
 #include "DBConnection.h"
 #include "DBResult.h"
+#include "Type.h"
 
 #include <vector>
 #include <string>
 #include <cstddef>
-#include <cstdint>
 
 namespace db::account {
     
@@ -35,7 +35,7 @@ inline std::vector<std::string> params_for_create(const std::string& login_id, c
 }
 
 struct Row {
-    int64_t     user_id = 0;
+    UserId      user_id = 0;
     std::string pass_hash;
     std::string nickname;
 };

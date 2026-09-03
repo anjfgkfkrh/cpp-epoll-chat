@@ -1,5 +1,5 @@
 CXX := g++
-CXXFLAGS := -Wall -Wextra -std=c++20 -pthread
+CXXFLAGS := -Wall -Wextra -std=c++20 -pthread -MMD -MP
 DEBUGFLAGS := -g -O0
 RELEASEFLAGS := -O2
 
@@ -14,10 +14,10 @@ BIN_DIR  := $(OUT_DIR)/bin
 
 # 헤더가 하위 디렉터리에 흩어져 있고 파일명만으로 include 하므로 전부 추가해야 한다
 SERV_INC := -Iserver/src -Iserver/src/core -Iserver/src/network -Iserver/src/user -Iserver/src/auth \
-            -Iserver/src/room -Iserver/src/event -Iserver/src/protocol -Iserver/src/server -Iserver/src/db \
+            -Iserver/src/room -Iserver/src/event -Iserver/src/server -Iserver/src/db -Iprotocol \
             -I$(shell pg_config --includedir)
 SERV_LDFLAGS := -lpq
-CLIE_INC := -Iclient/src
+CLIE_INC := -Iclient/src -Iprotocol
 
 
 SERV_TARGET := $(BIN_DIR)/run_server
@@ -66,3 +66,8 @@ run: $(SERV_TARGET)
 	@set -a; . ./.env; set +a; ./$(SERV_TARGET)
 
 .PHONY: all debug release server client clean re run
+
+# 컴파일 시 -MMD 가 오브젝트 옆에 .d 파일을 만들어 그 .cpp 가 포함한 헤더 목록을 기록한다.
+# 아래 -include 가 그것을 규칙으로 읽어들여, 헤더가 바뀌면 해당 .cpp 만 자동으로 다시 컴파일된다.
+# (SERV_OBJ / CLIE_OBJ 가 정의된 뒤여야 하므로 파일 맨 아래에 둔다)
+-include $(SERV_OBJ:.o=.d) $(CLIE_OBJ:.o=.d)

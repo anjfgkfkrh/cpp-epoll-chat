@@ -87,7 +87,7 @@ bool Client::connect_server(uint16_t port) {
     return true;
 }
 
-bool Client::validate_room_id(uint32_t room_id) const {
+bool Client::validate_room_id(RoomId room_id) const {
     if (room_id == 0) {
         std::cout << "[error] 방 번호는 1 이상이어야 합니다" << std::endl;
         return false;
@@ -110,7 +110,7 @@ bool Client::setup_command() {
     };
 
     commands_lobby_["/join"] = [this](std::istringstream& args) {
-        uint32_t room_id;
+        RoomId room_id;
         if (!(args >> room_id)) {
             std::cout << "[error] 사용법: /join [room_id]" << std::endl;
             return;
@@ -218,7 +218,7 @@ std::string Client::read_line() {
     return std::string(buf, bytes);
 }
 
-bool Client::send_request(Command cmd, uint32_t room_id, const std::string& body) {
+bool Client::send_request(Command cmd, RoomId room_id, const std::string& body) {
     Header header{};
     header.type = PacketType::PKT_REQUEST;
 
@@ -310,7 +310,7 @@ bool Client::handle_response() {
         return true;
     }
 
-    const uint32_t requested_room = pending_->room_id;
+    const RoomId requested_room = pending_->room_id;
     const Command  cmd            = pending_->command;
     pending_.reset();
 
@@ -330,7 +330,7 @@ bool Client::handle_response() {
         }
         int64_t created = 0;
         std::memcpy(&created, body.data(), sizeof(created));
-        room_id_ = static_cast<uint32_t>(created);
+        room_id_ = created;
         state_   = ClientState::IN_ROOM;
         oldest_message_id_ = 0;         // 새 방이므로 커서 초기화
         std::cout << "[성공] 방 " << room_id_ << " 을(를) 만들고 입장했습니다" << std::endl;

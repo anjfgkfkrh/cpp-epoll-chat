@@ -3,6 +3,7 @@
 #include "DBConnection.h"
 #include "DBResult.h"
 #include "Codec.h"
+#include "Type.h"
 
 #include <vector>
 #include <string>
@@ -20,7 +21,7 @@ inline DBResult create(DBConnection& conn, const std::vector<std::string>& param
 inline std::vector<std::byte> serialize(const DBResult& res) {
     std::vector<std::byte> out;
     if(res.rows() == 0)  return out;
-    int64_t room_id = res.get_int64(0, "room_id");
+    RoomId room_id = res.get_int64(0, "room_id");
     codec::put(out, &room_id, sizeof(room_id));
     return out;
 }

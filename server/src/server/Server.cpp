@@ -189,7 +189,7 @@ void Server::close_session(int fd) {
     session->mark_disconnecting();
 
     // 소속된 Room에서 제거, 안전하게 로비도 확인
-    uint32_t room_id = user->get_current_room();
+    RoomId room_id = user->get_current_room();
     room_manager_.disconnect_session(fd, room_id);
     if(room_id != LOBBY_ROOM_ID)
         room_manager_.disconnect_session(fd, LOBBY_ROOM_ID);

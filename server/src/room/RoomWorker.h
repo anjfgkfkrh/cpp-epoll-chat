@@ -16,6 +16,7 @@
 #include "EventState.h"
 #include "UserManager.h"
 #include "DBWorker.h"
+#include "Type.h"
 
 using Protocol::Packet;
 class RoomManager;
@@ -37,7 +38,7 @@ private:
     IServerService& sservice_;
     DBWorker& db_;
 
-    std::unordered_map<uint32_t, Room> rooms_;
+    std::unordered_map<RoomId, Room> rooms_;
     UserManager& user_manager_;
 
     std::queue<RoomEvent> event_queue_;
@@ -56,7 +57,7 @@ public:
 
     inline size_t get_rooms_num() { return rooms_.size(); }
 
-    bool diconnect_session(int fd, uint32_t room_id);   // 소유한 room들을 순회하여 session 제거
+    bool diconnect_session(int fd, RoomId room_id);   // 소유한 room들을 순회하여 session 제거
 
 private:
     void thread_main();
@@ -64,9 +65,9 @@ private:
 
     Result create_room(RoomEvent& event, int max_session = 5);
     Result join_room(RoomEvent& event);
-    Result join_room(std::shared_ptr<Session> session, uint32_t room_id);
+    Result join_room(std::shared_ptr<Session> session, RoomId room_id);
     Result leave_room(RoomEvent& event);
-    Result leave_room(int fd, uint32_t room_id);
+    Result leave_room(int fd, RoomId room_id);
     Result send_message(RoomEvent& event);
     void send_response(RoomEvent& event);
     void flush(std::shared_ptr<Session> session);

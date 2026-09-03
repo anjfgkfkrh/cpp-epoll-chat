@@ -4,6 +4,7 @@
 #include "Epoll.h"
 #include "Protocol.h"
 #include "MessageCodec.h"
+#include "Type.h"
 
 #include <string>
 #include <optional>
@@ -16,7 +17,7 @@
 // 로비는 서버가 접속 시 자동으로 넣어주는 방이다.
 // 이 번호로 직접 create/join 을 요청하면 서버의 방 이동 플랜이
 // "로비 입장 -> 로비 퇴장"이 되어 유저가 어느 방에도 속하지 않는 상태가 된다.
-constexpr uint32_t LOBBY_ROOM_ID = 1;
+constexpr RoomId LOBBY_ROOM_ID = 1;
 
 enum class ClientState {
     LOBBY,      // 방 생성/입장
@@ -31,7 +32,7 @@ private:
     // (CREATE 는 예외로, 서버가 발급한 room_id 가 응답 body 에 실려온다)
     struct Pending {
         Protocol::Command command;
-        uint32_t room_id;
+        RoomId room_id;
     };
 
     std::optional<Socket> sock_;        // 서버 연결 소켓
@@ -40,7 +41,7 @@ private:
     std::unordered_map<std::string, std::function<void(std::istringstream&)>> commands_lobby_;  // 로비 명령어
     std::unordered_map<std::string, std::function<void(std::istringstream&)>> commands_room_;   // 방 명령어
     ClientState state_;                 // 현재 위치 (로비, 방)
-    uint32_t room_id_;                  // 현재 접속 중인 room_id
+    RoomId room_id_;                  // 현재 접속 중인 room_id
     int64_t oldest_message_id_;         // 지금까지 받은 가장 오래된 메시지 id (0 = 아직 없음)
                                         // 다음 /load 의 커서로 쓴다
     bool running_;                      // 작동 플래그
@@ -56,8 +57,8 @@ private:
     std::string read_line();            // 키보드 문자열 입력 수신
     bool connect_server(uint16_t port); // 서버 연결
     bool setup_command();               // 명령어 초기화 및 등록
-    bool validate_room_id(uint32_t room_id) const;  // 요청 전 방 번호 검사 (로비 번호 차단)
-    bool send_request(Protocol::Command cmd, uint32_t room_id, const std::string& body = "");
+    bool validate_room_id(RoomId room_id) const;  // 요청 전 방 번호 검사 (로비 번호 차단)
+    bool send_request(Protocol::Command cmd, RoomId room_id, const std::string& body = "");
 
     bool handle_input();                // 사용자 입력 처리
     bool handle_packet();               // Packet 처리

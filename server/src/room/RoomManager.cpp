@@ -97,7 +97,7 @@ Result RoomManager::route_event(RoomEvent&& room_event, uint16_t target_worker_i
 
 
 
-void RoomManager::erase_room_to_worker(uint32_t room_id) {
+void RoomManager::erase_room_to_worker(RoomId room_id) {
     {
         std::lock_guard lock(room_to_worker_mutex_);
 
@@ -107,7 +107,7 @@ void RoomManager::erase_room_to_worker(uint32_t room_id) {
 
 
 
-void RoomManager::disconnect_session(int fd, uint32_t room_id) {
+void RoomManager::disconnect_session(int fd, RoomId room_id) {
     RoomEvent event;
     event.fd = fd;
     event.target_room_id = room_id;
@@ -118,7 +118,7 @@ void RoomManager::disconnect_session(int fd, uint32_t room_id) {
 
 
 
-uint16_t RoomManager::find_worker(uint32_t room_id) {
+uint16_t RoomManager::find_worker(RoomId room_id) {
     {   
         std::shared_lock lock(room_to_worker_mutex_);
 
@@ -131,7 +131,7 @@ uint16_t RoomManager::find_worker(uint32_t room_id) {
 
 
 
-uint16_t RoomManager::bind_room_worker(uint32_t room_id) {
+uint16_t RoomManager::bind_room_worker(RoomId room_id) {
     // 2개의 RoomWorker 랜덤 추첨
     // 2개 중 room의 갯수가 적은 RoomWorker에 바인드
 

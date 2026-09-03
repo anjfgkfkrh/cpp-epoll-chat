@@ -141,7 +141,7 @@ void RoomWorker::request_db_create_room(RoomEvent& event) {
 }
 
 Result RoomWorker::create_room(RoomEvent& event, int max_session) {
-    uint32_t room_id = event.actions[event.current_action-1].target_room_id;
+    RoomId room_id = event.actions[event.current_action-1].target_room_id;
     auto itr = rooms_.find(room_id);
     if(itr != rooms_.end()) // 이럴리가 없음, 이미 RoomManager에서 room_to_worker로 없는거 확인 하고 옴
         return Result::RoomAlreadyExists;
@@ -155,7 +155,7 @@ Result RoomWorker::join_room(RoomEvent& event) {
     return join_room(event.session, event.actions[event.current_action-1].target_room_id);
 }
 
-Result RoomWorker::join_room(std::shared_ptr<Session> session, uint32_t room_id) {
+Result RoomWorker::join_room(std::shared_ptr<Session> session, RoomId room_id) {
     // room 조회
     auto itr = rooms_.find(room_id);
     if(itr == rooms_.end())
@@ -180,7 +180,7 @@ Result RoomWorker::leave_room(RoomEvent& event) {
     return leave_room(event.session->get_fd(), event.actions[event.current_action-1].target_room_id);
 }
 
-Result RoomWorker::leave_room(int fd, uint32_t room_id) {
+Result RoomWorker::leave_room(int fd, RoomId room_id) {
     // 룸 조회
     auto itr = rooms_.find(room_id);
     if(itr == rooms_.end())
@@ -261,7 +261,7 @@ void RoomWorker::save_message(RoomEvent& event) {
 }
 
 void RoomWorker::request_db_load_message(RoomEvent& event) {
-    uint32_t room_id = event.actions[event.current_action-1].target_room_id;
+    RoomId room_id = event.actions[event.current_action-1].target_room_id;
     int64_t lasted_message_id = 0;
     if(event.request_data.size() >= sizeof(int64_t))
         std::memcpy(&lasted_message_id, event.request_data.data(), sizeof(int64_t));
@@ -282,7 +282,7 @@ void RoomWorker::request_db_load_message(RoomEvent& event) {
 void RoomWorker::db_create_room_on_result(RoomEvent&& event, DBStatus status, std::vector<std::byte>&& data) {
     db::codec::Reader r{data.data(), data.size()};
 
-    int64_t room_id = 0;
+    RoomId room_id = 0;
 
     if(status == DBStatus::Error || !r.take(&room_id, sizeof(room_id))){
         event.result_code = Result::DBError;
@@ -291,7 +291,7 @@ void RoomWorker::db_create_room_on_result(RoomEvent&& event, DBStatus status, st
     }
 
     event.result_code = Result::Success;
-    event.resolve_room_id(static_cast<uint32_t>(room_id));
+    event.resolve_room_id(room_id);
     event.response_data = std::move(data);
     uint16_t worker_id = this->manager_.bind_room_worker(event.target_room_id);
     this->manager_.route_event(std::move(event), worker_id);
@@ -347,7 +347,7 @@ void RoomWorker::send_packet(const std::shared_ptr<Session>& session, const std:
 
 
 
-bool RoomWorker::diconnect_session(int fd, uint32_t room_id) {
+bool RoomWorker::diconnect_session(int fd, RoomId room_id) {
     if(leave_room(fd, room_id) == Result::Success){  // room에 존재하면 바로 퇴장
         return true;
     }

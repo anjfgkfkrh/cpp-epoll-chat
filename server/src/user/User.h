@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Type.h"
+
 #include <string>
 #include <atomic>
 
@@ -7,22 +9,22 @@
 class User {
 private:
     int fd_;
-    uint16_t user_id_;
+    UserId user_id_;
     std::string user_name_;
-    std::atomic<uint16_t> current_room_;
+    std::atomic<RoomId> current_room_;
     std::atomic<bool> disconnecting;
 public:
-    User(int fd, uint16_t user_id, std::string user_name);
+    User(int fd, UserId user_id, std::string user_name);
     ~User();
 
     void set_name(std::string user_name);
     const std::string& get_name();
 
     int get_fd();
-    uint16_t get_id();
+    UserId get_id();
 
-    inline void set_current_room(uint16_t room_id) { current_room_.store(room_id); }
-    inline uint16_t get_current_room() { return current_room_.load(); }
+    inline void set_current_room(RoomId room_id) { current_room_.store(room_id); }
+    inline RoomId get_current_room() { return current_room_.load(); }
     inline void mark_diconnecting() { disconnecting.store(true); }
     inline bool is_diconnecting() { return disconnecting.load(); }
 

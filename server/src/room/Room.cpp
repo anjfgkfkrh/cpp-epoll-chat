@@ -1,7 +1,7 @@
 #include "Room.h"
 #include <algorithm>
 
-Room::Room(uint32_t room_id, int max_sessions) : room_id_(room_id), max_sessions_(max_sessions), current_sessions_(0) {}
+Room::Room(RoomId room_id, int max_sessions) : room_id_(room_id), max_sessions_(max_sessions), current_sessions_(0) {}
 Room::~Room() {}
 
 bool Room::join_session(std::shared_ptr<Session> session) {

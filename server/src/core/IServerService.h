@@ -1,7 +1,5 @@
 #pragma once
 
-#include <cstdint>
-
 class IServerService {
 public:
     virtual void request_enable_epollout(int fd) = 0;

@@ -15,7 +15,7 @@ void UserManager::add_user(User&& user) {
     }
 }
 
-void UserManager::remove_user(uint16_t user_id) {
+void UserManager::remove_user(UserId user_id) {
     {
         std::lock_guard lock(mutex_);
 
@@ -30,7 +30,7 @@ void UserManager::remove_user(uint16_t user_id) {
     }
 }
 
-std::shared_ptr<User> UserManager::get_user(uint16_t user_id) {
+std::shared_ptr<User> UserManager::get_user(UserId user_id) {
     {
         std::lock_guard lock(mutex_);
 
@@ -48,7 +48,7 @@ std::shared_ptr<User> UserManager::get_user(int fd) {
         if(fd_to_user_id_.find(fd) == fd_to_user_id_.end())
             return 0;
 
-        uint16_t user_id = fd_to_user_id_.at(fd);
+        UserId user_id = fd_to_user_id_.at(fd);
 
         if(users_.find(user_id) == users_.end())
             return nullptr;
@@ -57,7 +57,7 @@ std::shared_ptr<User> UserManager::get_user(int fd) {
     }
 }
 
-uint16_t UserManager::get_user_id(int fd) {
+UserId UserManager::get_user_id(int fd) {
     {
         std::lock_guard lock(mutex_);
         

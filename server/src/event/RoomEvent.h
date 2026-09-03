@@ -4,12 +4,13 @@
 #include "Result.h"
 #include "EventState.h"
 #include "Session.h"
+#include "Type.h"
 
 #include <memory>
 #include <array>
 #include <limits>
 
-constexpr uint32_t PENDING_ROOM_ID = std::numeric_limits<uint32_t>::max();
+constexpr RoomId PENDING_ROOM_ID = std::numeric_limits<RoomId>::max();
 
 enum class ActionCommand : uint8_t {
     CREATE_ROOM,
@@ -32,14 +33,14 @@ enum class ActionCommand : uint8_t {
 
 struct RoomAction {
     ActionCommand command;
-    uint32_t target_room_id;
+    RoomId target_room_id;
 };
 
 struct RoomEvent {
     std::array<RoomAction, 10> actions;     // 처리 해야할 행동 리스트
     uint8_t current_action = 0;             // 현재 action
     uint8_t action_len = 0;                 // action 갯수
-    uint32_t target_room_id = 0;            // 이벤트 요청 목표 Room ID
+    RoomId target_room_id = 0;            // 이벤트 요청 목표 Room ID
 
     Protocol::Command initial_command;      // 사용자가 보낸 최초 명령
 
@@ -50,7 +51,7 @@ struct RoomEvent {
 
     Result result_code = Result::None;          // 처리 결과 코드
 
-    bool add_action(ActionCommand cmd, uint32_t room_id=0) {
+    bool add_action(ActionCommand cmd, RoomId room_id=0) {
         if(action_len >= actions.size())
             return false;
 
@@ -59,7 +60,7 @@ struct RoomEvent {
         return true;
     }
 
-    void resolve_room_id(uint32_t room_id) {
+    void resolve_room_id(RoomId room_id) {
         for (uint8_t i=0; i<action_len; ++i)
             if(actions[i].target_room_id == PENDING_ROOM_ID)
                 actions[i].target_room_id = room_id;
@@ -77,5 +78,7 @@ inline ActionCommand to_event_command(Protocol::Command command) {
         return ActionCommand::LEAVE_ROOM;
     case Protocol::Command::CMD_SEND_MESSAGE:
         return ActionCommand::SEND_MESSAGE;
+    case Protocol::Command::CMD_LOAD_MESSAGE:
+        return ActionCommand::REQUEST_DB_LOAD_MESSAGE;
     }
 }
